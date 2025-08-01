@@ -1,168 +1,116 @@
-const htmlContent = `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Assistente - Painel</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat&display=swap" rel="stylesheet" />
-<style>
-  /* Seu CSS aqui */
-</style>
-</head>
-<body>
-  <button id="toggle-sidebar" aria-label="Alternar menu lateral" title="Abrir/Fechar menu">☰</button>
+// ==UserScript==
+// @name         Modal | Painel
+// @namespace    https://tribalwars.com.br/
+// @version      1.0
+// @description  Cria o painel em um modal para ser integrado ao AutoFarm
+// @author       Triky, GPT & Cia
+// @include      http*://*.tribalwars.*/game.php?*&screen=storage*
+// @grant        none
+// ==/UserScript==
 
-  <nav id="menu" role="navigation" aria-label="Menu de funções">
-    <button type="button" data-func="construcao" title="Construção Automática" aria-pressed="false">
-      <img src="https://cdn-icons-png.flaticon.com/512/1946/1946433.png" alt="Construção Automática" />
-    </button>
-    <button type="button" data-func="farm" title="Farm Automático" aria-pressed="false">
-      <img src="https://cdn-icons-png.flaticon.com/512/5522/5522602.png" alt="Farm Automático" />
-    </button>
-    <button type="button" data-func="recrutamento" title="Recrutamento Automático" aria-pressed="false">
-      <img src="https://cdn-icons-png.flaticon.com/512/2940/2940456.png" alt="Recrutamento Automático" />
-    </button>
-  </nav>
+(function () {
+  'use strict';
 
-  <main id="content" tabindex="-1">
-    <section id="func-panel" tabindex="-1" aria-live="polite" aria-label="Painel de configuração">
-      <h2 id="func-title">Configuração</h2>
-      <p id="func-desc">Descrição da função selecionada aparecerá aqui.</p>
-      
-      <!-- Resto do conteúdo HTML -->
+  const painelURL = "https://play2market.github.io/Amaterasu/painel.html";
 
-    </section>
-  </main>
+  // Função global para abrir o modal
+  window.openModal = function () {
+    if (document.getElementById('custom_modal')) return;
 
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const toggleBtn = document.getElementById('toggle-sidebar');
-      const menu = document.getElementById('menu');
-      const buttons = menu.querySelectorAll('button[data-func]');
-      const funcPanel = document.getElementById('func-panel');
-      const funcTitle = document.getElementById('func-title');
-      const funcDesc = document.getElementById('func-desc');
-      const saveSwitch = document.getElementById('save-config-switch');
-      const enableSwitch = document.getElementById('enable-module-switch');
-      const consoleEl = document.getElementById('console');
-
-      const btnPadrao = document.getElementById('btn-padrao');
-      const btnRecursos = document.getElementById('btn-recursos');
-
-      const LS_SAVE_PREFIX = 'saveConfig_';
-      const LS_ENABLE_PREFIX = 'enableModule_';
-
-      const descriptions = {
-        construcao: "Automatiza a construção e melhoria de edifícios.",
-        farm: "Gerencia ataques automáticos para coletar recursos.",
-        recrutamento: "Controla o recrutamento automático de tropas."
-      };
-
-      let currentFunc = null;
-
-      const buttonsNamed = {};
-      buttons.forEach(btn => buttonsNamed[btn.dataset.func] = btn);
-
-      function timestamp() {
-        const d = new Date();
-        return `[${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}]`;
-      }
-
-      function log(msg) {
-        const line = document.createElement('div');
-        line.textContent = `${timestamp()} ${msg}`;
-        consoleEl.appendChild(line);
-        consoleEl.scrollTop = consoleEl.scrollHeight;
-      }
-
-      function setActiveButton(selectedBtn) {
-        [btnPadrao, btnRecursos].forEach(btn => {
-          btn.classList.toggle('active', btn === selectedBtn);
-        });
-        log(`Modo selecionado: ${selectedBtn.textContent}`);
-      }
-
-      btnPadrao.addEventListener('click', () => setActiveButton(btnPadrao));
-      btnRecursos.addEventListener('click', () => setActiveButton(btnRecursos));
-
-      function updatePanel(func) {
-        currentFunc = func;
-        const btn = buttonsNamed[func];
-        funcTitle.textContent = btn?.querySelector('img')?.alt || func.charAt(0).toUpperCase() + func.slice(1) + ' Automático';
-        funcDesc.textContent = descriptions[func] || '';
-
-        saveSwitch.checked = localStorage.getItem(LS_SAVE_PREFIX + func) === 'true';
-        enableSwitch.checked = localStorage.getItem(LS_ENABLE_PREFIX + func) === 'true';
-
-        funcPanel.style.display = 'flex';
-
-        buttons.forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.func === func);
-          btn.setAttribute('aria-pressed', btn.dataset.func === func ? 'true' : 'false');
-        });
-
-        setActiveButton(btnPadrao);
-
-        log(`Painel aberto: ${funcTitle.textContent}`);
-        log(`Salvar Configuração: ${saveSwitch.checked}`);
-        log(`Habilitar Módulo: ${enableSwitch.checked}`);
-
-        funcPanel.focus();
-      }
-
-      buttons.forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (currentFunc === btn.dataset.func && funcPanel.style.display === 'flex') {
-            funcPanel.style.display = 'none';
-            log(`Painel fechado`);
-            currentFunc = null;
-            buttons.forEach(b => {
-              b.classList.remove('active');
-              b.setAttribute('aria-pressed', 'false');
-            });
-            return;
-          }
-          updatePanel(btn.dataset.func);
-        });
-      });
-
-      saveSwitch.addEventListener('change', () => {
-        if (!currentFunc) return;
-        localStorage.setItem(LS_SAVE_PREFIX + currentFunc, saveSwitch.checked);
-        log(`Salvar Configuração alterado para ${saveSwitch.checked} em ${currentFunc}`);
-      });
-
-      enableSwitch.addEventListener('change', () => {
-        if (!currentFunc) return;
-        localStorage.setItem(LS_ENABLE_PREFIX + currentFunc, enableSwitch.checked);
-        log(`Habilitar Módulo alterado para ${enableSwitch.checked} em ${currentFunc}`);
-      });
-
-      document.body.addEventListener('click', e => {
-        if (
-          funcPanel.style.display === 'flex' &&
-          !funcPanel.contains(e.target) &&
-          !e.target.closest('#menu') &&
-          e.target !== toggleBtn
-        ) {
-          funcPanel.style.display = 'none';
-          log(`Painel fechado`);
-          currentFunc = null;
-          buttons.forEach(btn => {
-            btn.classList.remove('active');
-            btn.setAttribute('aria-pressed', 'false');
-          });
-        }
-      });
-
-      toggleBtn.addEventListener('click', () => {
-        menu.classList.toggle('collapsed');
-      });
+    const overlay = document.createElement('div');
+    overlay.id = 'custom_modal';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      top: 0, left: 0,
+      width: '100vw',
+      height: '100vh',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 999998,
+      opacity: 0,
+      transition: 'opacity 0.3s ease',
+      flexDirection: 'column',
     });
-  </script>
-</body>
-</html>
-`;
 
-document.body.innerHTML = htmlContent;
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'relative',
+      width: '95vw',
+      maxWidth: '1100px',
+      height: '90vh',
+      maxHeight: '650px',
+      borderRadius: '8px',
+      backgroundColor: 'transparent',
+      boxShadow: '0 0 15px rgba(0,0,0,0.5)',
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    Object.assign(closeBtn.style, {
+      position: 'absolute',
+      top: '8px',
+      right: '8px',
+      width: '30px',
+      height: '30px',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      border: 'none',
+      borderRadius: '15px',
+      color: '#eee',
+      fontSize: '20px',
+      cursor: 'pointer',
+      zIndex: 1000000,
+      lineHeight: '30px',
+      textAlign: 'center',
+      padding: 0,
+      userSelect: 'none',
+      transition: 'background-color 0.3s ease',
+    });
+    closeBtn.addEventListener('click', () => closeModal());
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'custom_iframe';
+    iframe.title = 'Painel do Assistente';
+    Object.assign(iframe.style, {
+      width: '100%',
+      height: '100%',
+      border: 'none',
+      borderRadius: '8px',
+      backgroundColor: 'transparent',
+      overflow: 'auto',
+      display: 'block',
+      flexGrow: 1,
+    });
+
+    iframe.src = painelURL;
+
+    container.appendChild(closeBtn);
+    container.appendChild(iframe);
+    overlay.appendChild(container);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeModal();
+    });
+
+    // Animação de transição
+    setTimeout(() => {
+      overlay.style.opacity = '1';
+    }, 10);
+  };
+
+  // Função global para fechar o modal
+  window.closeModal = function () {
+    const modal = document.getElementById('custom_modal');
+    if (modal) {
+      modal.style.opacity = '0';
+      modal.addEventListener('transitionend', () => {
+        modal.style.display = 'none';
+      }, { once: true });
+    }
+  };
+})();
