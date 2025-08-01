@@ -15,6 +15,8 @@
 
   // Função global para abrir o modal
   window.openModal = function () {
+    console.log("Abrindo o modal...");
+
     if (document.getElementById('custom_modal')) return;
 
     const overlay = document.createElement('div');
@@ -105,6 +107,7 @@
 
   // Função global para fechar o modal
   window.closeModal = function () {
+    console.log("Fechando o modal...");
     const modal = document.getElementById('custom_modal');
     if (modal) {
       modal.style.opacity = '0';
