@@ -1,7 +1,9 @@
 // ==UserScript==
-// @name        AutoFarm Console
-// @include     http*://*.tribalwars.*/game.php?*&screen=am_farm*
-// @grant       none
-// @require     https://raw.githubusercontent.com/SeuUser/Repo/main/UserScripts/MinhaAcao/MinhaSeparacao/modal.js
-// @require     https://raw.githubusercontent.com/SeuUser/Repo/main/UserScripts/MinhaAcao/MinhaSeparacao/icone.js
+// @name         AutoFarm Console
+// @namespace    https://github.com/Play2Market/TribalWars
+// @version      1.1
+// @match        https://*.tribalwars.*/*screen=am_farm*
+// @grant        none
+// @require      https://raw.githubusercontent.com/Play2Market/TribalWars/main/UserScripts/AutoFarm/Modal/modal.js
+// @require      https://raw.githubusercontent.com/Play2Market/TribalWars/main/UserScripts/AutoFarm/Icone/icone.js
 // ==/UserScript==
