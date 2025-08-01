@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Amaterasu
+// @name         AutoFarm | Interface
 // @namespace    https://tribalwars.com.br/
 // @version      1.1
 // @description  Cria botão que abre o painel modal com transição e salva estado.
