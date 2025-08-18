@@ -1,13 +1,16 @@
 // ==UserScript==
 // @name         Kitsune - Módulo de Grupos Personalizados
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.0
+// @version      1.1
 // @description  Módulo para gerenciar grupos personalizados no Assistente Kitsune.
 // @author       Triky, GPT & Cia
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    const STORAGE_KEY = `kitsune_groups_${game_data.world}`;
+    const MAX_GROUPS = 3;
 
     // Adiciona os estilos CSS necessários para o modal
     function addModalStyles() {
@@ -28,6 +31,7 @@
             .kitsune-group-actions button { margin-left: 10px; }
             .kitsune-button { display: inline-block; margin-top: 10px; padding: 8px 20px; background-color: #e06c75; border: 1px solid #e06c75; color: #fff; border-radius: 5px; cursor: pointer; font-weight: bold; transition: background-color 0.2s; text-align: center;}
             .kitsune-button:hover { background-color: #c05c65; }
+            .kitsune-button:disabled { background-color: #4a515e; border-color: #4a515e; cursor: not-allowed; }
             .kitsune-button-small { padding: 4px 10px; font-size: 0.9em; }
             .kitsune-button-secondary { background-color: #3a404a; border-color: #4a515e; }
             .kitsune-button-secondary:hover { background-color: #4a515e; }
@@ -39,12 +43,24 @@
             .kitsune-form-row-vertical input, .kitsune-form-row-vertical textarea { width: 100%; box-sizing: border-box; background-color: #21252b; color: #dcdfe4; border: 1px solid #4a515e; border-radius: 4px; padding: 5px; }
             .kitsune-form-actions { text-align: right; margin-top: 20px; }
             .kitsune-form-actions button { margin-left: 10px; }
+            .kitsune-no-groups-message { text-align: center; color: var(--kitsune-text-dark); padding: 20px; }
         `);
     }
 
-    // Função que gerencia todo o estado e comportamento do modal
+    // --- Funções de Dados (CRUD) ---
+    function getCustomGroups() {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    }
+
+    function saveCustomGroups(groups) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
+    }
+
+    // --- Função principal que gerencia o Modal ---
     function manageCustomGroupsModal() {
         const MODAL_ID = 'kitsune-custom-groups-modal';
+        let currentGroups = [];
+        let editingGroupId = null;
 
         function createModal() {
             if (document.getElementById(MODAL_ID)) return;
@@ -60,26 +76,11 @@
                     </div>
                     <div class="kitsune-modal-body">
                         <div id="kitsune-groups-list-view">
-                            <div id="kitsune-custom-groups-list">
-                                <div class="kitsune-custom-group-item">
-                                    <span>Grupo de Ataque</span>
-                                    <div class="kitsune-group-actions">
-                                        <button class="kitsune-button kitsune-button-small kitsune-button-secondary">Editar</button>
-                                        <button class="kitsune-button kitsune-button-small kitsune-button-danger">Excluir</button>
-                                    </div>
-                                </div>
-                                <div class="kitsune-custom-group-item">
-                                    <span>Grupo de Defesa</span>
-                                    <div class="kitsune-group-actions">
-                                        <button class="kitsune-button kitsune-button-small kitsune-button-secondary">Editar</button>
-                                        <button class="kitsune-button kitsune-button-small kitsune-button-danger">Excluir</button>
-                                    </div>
-                                </div>
-                            </div>
+                            <div id="kitsune-custom-groups-list"></div>
                             <button id="kitsune-btn-new-group" class="kitsune-button">Criar Novo Grupo</button>
                         </div>
                         <div id="kitsune-groups-form-view" style="display: none;">
-                            <h4 id="kitsune-form-title">Criar Novo Grupo</h4>
+                            <h4 id="kitsune-form-title"></h4>
                             <div class="kitsune-form-row-vertical">
                                 <label for="kitsune-group-name">Nome do Grupo (máx. 8 caracteres):</label>
                                 <input type="text" id="kitsune-group-name" maxlength="8">
@@ -94,34 +95,114 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
+                </div>`;
             document.body.appendChild(modalOverlay);
+            bindUIEvents(modalOverlay);
+        }
 
-            // Lógica de UI do Modal
-            const listView = modalOverlay.querySelector('#kitsune-groups-list-view');
-            const formView = modalOverlay.querySelector('#kitsune-groups-form-view');
-            const btnNewGroup = modalOverlay.querySelector('#kitsune-btn-new-group');
-            const btnCancel = modalOverlay.querySelector('#kitsune-btn-cancel-edit');
-            const formTitle = modalOverlay.querySelector('#kitsune-form-title');
+        function renderGroupsList() {
+            const listContainer = document.querySelector(`#${MODAL_ID} #kitsune-custom-groups-list`);
+            const btnNewGroup = document.querySelector(`#${MODAL_ID} #kitsune-btn-new-group`);
+            listContainer.innerHTML = '';
 
-            btnNewGroup.addEventListener('click', () => {
+            if (currentGroups.length === 0) {
+                listContainer.innerHTML = '<p class="kitsune-no-groups-message">Nenhum grupo personalizado criado.</p>';
+            } else {
+                currentGroups.forEach(group => {
+                    const groupEl = document.createElement('div');
+                    groupEl.className = 'kitsune-custom-group-item';
+                    groupEl.innerHTML = `
+                        <span>${group.name}</span>
+                        <div class="kitsune-group-actions">
+                            <button class="kitsune-button kitsune-button-small kitsune-button-secondary" data-id="${group.id}">Editar</button>
+                            <button class="kitsune-button kitsune-button-small kitsune-button-danger" data-id="${group.id}">Excluir</button>
+                        </div>
+                    `;
+                    listContainer.appendChild(groupEl);
+                });
+            }
+
+            btnNewGroup.disabled = currentGroups.length >= MAX_GROUPS;
+        }
+
+        function bindUIEvents(modal) {
+            const listView = modal.querySelector('#kitsune-groups-list-view');
+            const formView = modal.querySelector('#kitsune-groups-form-view');
+            const formTitle = modal.querySelector('#kitsune-form-title');
+            const groupNameInput = modal.querySelector('#kitsune-group-name');
+            const groupCoordsInput = modal.querySelector('#kitsune-group-coords');
+
+            // Botão para mostrar formulário de novo grupo
+            modal.querySelector('#kitsune-btn-new-group').addEventListener('click', () => {
+                editingGroupId = null;
                 formTitle.textContent = 'Criar Novo Grupo';
+                groupNameInput.value = '';
+                groupCoordsInput.value = '';
                 listView.style.display = 'none';
                 formView.style.display = 'block';
             });
 
-            btnCancel.addEventListener('click', () => {
-                listView.style.display = 'block';
+            // Botão para cancelar edição/criação
+            modal.querySelector('#kitsune-btn-cancel-edit').addEventListener('click', () => {
                 formView.style.display = 'none';
+                listView.style.display = 'block';
             });
 
-            modalOverlay.querySelector('.kitsune-modal-close').addEventListener('click', hide);
-            modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) hide(); });
+            // Botão para salvar
+            modal.querySelector('#kitsune-btn-save-group').addEventListener('click', () => {
+                const name = groupNameInput.value.trim();
+                const coords = groupCoordsInput.value.trim().split('\n').filter(c => c.match(/\d+\|\d+/));
+
+                if (!name) { alert('O nome do grupo não pode estar vazio.'); return; }
+
+                if (editingGroupId) { // Editando
+                    const group = currentGroups.find(g => g.id === editingGroupId);
+                    group.name = name;
+                    group.coords = coords;
+                } else { // Criando
+                    currentGroups.push({ id: Date.now(), name, coords });
+                }
+
+                saveCustomGroups(currentGroups);
+                renderGroupsList();
+                formView.style.display = 'none';
+                listView.style.display = 'block';
+            });
+
+            // Listeners para botões de editar e excluir na lista
+            modal.querySelector('#kitsune-custom-groups-list').addEventListener('click', (e) => {
+                const target = e.target;
+                const groupId = parseInt(target.getAttribute('data-id'));
+
+                if (target.textContent === 'Editar') {
+                    const group = currentGroups.find(g => g.id === groupId);
+                    editingGroupId = groupId;
+                    formTitle.textContent = `Editar Grupo "${group.name}"`;
+                    groupNameInput.value = group.name;
+                    groupCoordsInput.value = group.coords.join('\n');
+                    listView.style.display = 'none';
+                    formView.style.display = 'block';
+                }
+
+                if (target.textContent === 'Excluir') {
+                    if (confirm(`Tem certeza que deseja excluir o grupo "${currentGroups.find(g => g.id === groupId).name}"?`)) {
+                        currentGroups = currentGroups.filter(g => g.id !== groupId);
+                        saveCustomGroups(currentGroups);
+                        renderGroupsList();
+                    }
+                }
+            });
+
+            modal.querySelector('.kitsune-modal-close').addEventListener('click', hide);
+            modal.addEventListener('click', (e) => { if (e.target === modal) hide(); });
         }
 
         function show() {
             createModal();
+            currentGroups = getCustomGroups();
+            renderGroupsList();
+            document.querySelector('#kitsune-groups-form-view').style.display = 'none';
+            document.querySelector('#kitsune-groups-list-view').style.display = 'block';
             document.getElementById(MODAL_ID).classList.add('show');
         }
 
@@ -133,11 +214,42 @@
         return { open: show };
     }
 
-    // Adiciona os estilos assim que o script é carregado
-    addModalStyles();
+    // --- Funções de Integração ---
+    async function getOfficialGroups() {
+        const groups = [];
+        try {
+            if (typeof villageDock !== 'undefined' && villageDock.loadLink) {
+                let finalUrl = villageDock.loadLink;
+                if (typeof game_data !== 'undefined' && game_data.csrf) { finalUrl = `${finalUrl}&h=${game_data.csrf}`; }
+                const response = await fetch(finalUrl);
+                if (!response.ok) return [];
+                const data = await response.json();
+                if (data && Array.isArray(data.result)) {
+                    data.result.forEach(groupInfo => {
+                        if (groupInfo.group_id && groupInfo.group_id !== '0' && groupInfo.name) {
+                            groups.push({ id: groupInfo.group_id, nome: groupInfo.name });
+                        }
+                    });
+                }
+            }
+        } catch (e) { console.error("Kitsune: Erro ao buscar grupos oficiais.", e); }
+        return groups;
+    }
 
-    // "Exporta" o gerenciador do modal para o escopo global (window)
-    // para que o script principal possa acessá-lo.
-    window.kitsuneCustomGroupsModal = manageCustomGroupsModal();
+    async function getCombinedGroups() {
+        const officialGroups = await getOfficialGroups();
+        const customGroups = getCustomGroups().map(g => ({
+            id: `custom_${g.id}`, // Prefixo para evitar conflito de IDs
+            nome: `[P] ${g.name}` // Prefixo para indicar que é um grupo pessoal
+        }));
+        return [...officialGroups, ...customGroups];
+    }
+
+    // Adiciona estilos e "exporta" as funcionalidades para o script principal
+    addModalStyles();
+    window.kitsuneModalManager = {
+        modal: manageCustomGroupsModal(),
+        getCombinedGroups: getCombinedGroups
+    };
 
 })();
