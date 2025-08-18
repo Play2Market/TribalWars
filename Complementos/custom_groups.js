@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune - Módulo de Grupos Personalizados
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.2
+// @version      1.3
 // @description  Módulo para gerenciar grupos personalizados no Assistente Kitsune.
 // @author       Triky, GPT & Cia
 // ==/UserScript==
@@ -50,13 +50,16 @@
         `);
     }
 
+    // --- Funções de Dados (CRUD) ---
     function getCustomGroups() { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
     function saveCustomGroups(groups) { localStorage.setItem(STORAGE_KEY, JSON.stringify(groups)); }
 
+    // --- Função principal que gerencia o Modal ---
     function manageCustomGroupsModal() {
         const MODAL_ID = 'kitsune-custom-groups-modal';
         let currentGroups = [];
         let editingGroupId = null;
+        let confirmingDeleteId = null;
 
         function createModal() {
             if (document.getElementById(MODAL_ID)) return;
@@ -107,12 +110,24 @@
                     const groupEl = document.createElement('div');
                     groupEl.className = 'kitsune-custom-group-item';
                     groupEl.dataset.id = group.id;
-                    groupEl.innerHTML = `
-                        <span>${group.name}</span>
-                        <div class="kitsune-group-actions">
+
+                    let actionsHtml;
+                    if (confirmingDeleteId === group.id) {
+                        actionsHtml = `
+                            <span>Tem certeza?</span>
+                            <button class="kitsune-button kitsune-button-small kitsune-button-secondary action-confirm-no">Não</button>
+                            <button class="kitsune-button kitsune-button-small kitsune-button-success action-confirm-yes">Sim</button>
+                        `;
+                    } else {
+                        actionsHtml = `
                             <button class="kitsune-button kitsune-button-small kitsune-button-secondary action-edit">Editar</button>
                             <button class="kitsune-button kitsune-button-small kitsune-button-danger action-delete">Excluir</button>
-                        </div>
+                        `;
+                    }
+
+                    groupEl.innerHTML = `
+                        <span>${group.name}</span>
+                        <div class="kitsune-group-actions">${actionsHtml}</div>
                     `;
                     listContainer.appendChild(groupEl);
                 });
@@ -129,6 +144,7 @@
 
             modal.querySelector('#kitsune-btn-new-group').addEventListener('click', () => {
                 editingGroupId = null;
+                confirmingDeleteId = null;
                 formTitle.textContent = 'Criar Novo Grupo';
                 groupNameInput.value = '';
                 groupCoordsInput.value = '';
@@ -162,11 +178,10 @@
                 const target = e.target;
                 const groupItem = target.closest('.kitsune-custom-group-item');
                 if (!groupItem) return;
-
                 const groupId = parseInt(groupItem.dataset.id);
 
                 if (target.classList.contains('action-edit')) {
-                    renderGroupsList(); // Reseta outras confirmações abertas
+                    confirmingDeleteId = null;
                     const group = currentGroups.find(g => g.id === groupId);
                     editingGroupId = groupId;
                     formTitle.textContent = `Editar Grupo "${group.name}"`;
@@ -175,18 +190,15 @@
                     listView.style.display = 'none';
                     formView.style.display = 'block';
                 } else if (target.classList.contains('action-delete')) {
-                    renderGroupsList(); // Reseta outras confirmações abertas
-                    const actionsDiv = groupItem.querySelector('.kitsune-group-actions');
-                    actionsDiv.innerHTML = `
-                        <span>Tem certeza?</span>
-                        <button class="kitsune-button kitsune-button-small kitsune-button-secondary action-confirm-no">Não</button>
-                        <button class="kitsune-button kitsune-button-small kitsune-button-success action-confirm-yes">Sim</button>
-                    `;
+                    confirmingDeleteId = groupId;
+                    renderGroupsList();
                 } else if (target.classList.contains('action-confirm-yes')) {
                     currentGroups = currentGroups.filter(g => g.id !== groupId);
                     saveCustomGroups(currentGroups);
+                    confirmingDeleteId = null;
                     renderGroupsList();
                 } else if (target.classList.contains('action-confirm-no')) {
+                    confirmingDeleteId = null;
                     renderGroupsList();
                 }
             });
@@ -198,6 +210,7 @@
         function show() {
             createModal();
             currentGroups = getCustomGroups();
+            confirmingDeleteId = null;
             renderGroupsList();
             document.querySelector('#kitsune-groups-form-view').style.display = 'none';
             document.querySelector('#kitsune-groups-list-view').style.display = 'block';
@@ -208,7 +221,6 @@
             const modal = document.getElementById(MODAL_ID);
             if (modal) modal.classList.remove('show');
         }
-
         return { open: show };
     }
 
