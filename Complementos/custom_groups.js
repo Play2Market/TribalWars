@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune - Módulo de Grupos Personalizados
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.1
+// @version      1.2
 // @description  Módulo para gerenciar grupos personalizados no Assistente Kitsune.
 // @author       Triky, GPT & Cia
 // ==/UserScript==
@@ -12,7 +12,6 @@
     const STORAGE_KEY = `kitsune_groups_${game_data.world}`;
     const MAX_GROUPS = 3;
 
-    // Adiciona os estilos CSS necessários para o modal
     function addModalStyles() {
         GM_addStyle(`
             /* --- Estilos do Modal --- */
@@ -20,14 +19,16 @@
             .kitsune-modal-overlay.show { display: flex; }
             .kitsune-modal { background-color: #282c34; border: 1px solid #4a515e; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); width: 600px; max-width: 90%; display: flex; flex-direction: column; }
             .kitsune-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 1px solid #4a515e; background-color: #21252b; border-top-left-radius: 8px; border-top-right-radius: 8px; }
-            .kitsune-modal-header h3 { margin: 0; color: #98c379; font-size: 1.1em; }
-            .kitsune-modal-close { font-size: 1.5em; font-weight: bold; color: #8a919e; cursor: pointer; border: none; background: none; }
+            .kitsune-modal-header h3 { margin: 0; color: #98c379; font-size: 1.3em; flex-grow: 1; text-align: center; }
+            .kitsune-modal-close { font-size: 1.5em; font-weight: bold; color: #8a919e; cursor: pointer; border: none; background: none; z-index: 1; margin-left: -20px; }
             .kitsune-modal-close:hover { color: #dcdfe4; }
             .kitsune-modal-body { padding: 20px; line-height: 1.5; max-height: 60vh; overflow-y: auto;}
             #kitsune-custom-groups-list { border: 1px solid #4a515e; border-radius: 5px; padding: 10px; margin-bottom: 20px; min-height: 120px; background-color: #21252b; }
             .kitsune-custom-group-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #4a515e; }
             .kitsune-custom-group-item:last-child { border-bottom: none; }
             .kitsune-custom-group-item span { font-weight: bold; color: #98c379; }
+            .kitsune-group-actions { text-align: right; }
+            .kitsune-group-actions span { margin-right: 10px; color: var(--kitsune-text-dark); }
             .kitsune-group-actions button { margin-left: 10px; }
             .kitsune-button { display: inline-block; margin-top: 10px; padding: 8px 20px; background-color: #e06c75; border: 1px solid #e06c75; color: #fff; border-radius: 5px; cursor: pointer; font-weight: bold; transition: background-color 0.2s; text-align: center;}
             .kitsune-button:hover { background-color: #c05c65; }
@@ -37,6 +38,8 @@
             .kitsune-button-secondary:hover { background-color: #4a515e; }
             .kitsune-button-danger { background-color: #a43a42; border-color: #a43a42; }
             .kitsune-button-danger:hover { background-color: #8b3138; }
+            .kitsune-button-success { background-color: #7b9e61; border-color: #7b9e61; }
+            .kitsune-button-success:hover { background-color: #6a8a52; }
             #kitsune-btn-new-group { display: block; width: 100%; margin-top:0; }
             .kitsune-form-row-vertical { display: flex; flex-direction: column; margin-bottom: 15px; }
             .kitsune-form-row-vertical label { margin-bottom: 5px; font-weight: bold; color: #8a919e; }
@@ -47,16 +50,9 @@
         `);
     }
 
-    // --- Funções de Dados (CRUD) ---
-    function getCustomGroups() {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    }
+    function getCustomGroups() { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+    function saveCustomGroups(groups) { localStorage.setItem(STORAGE_KEY, JSON.stringify(groups)); }
 
-    function saveCustomGroups(groups) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
-    }
-
-    // --- Função principal que gerencia o Modal ---
     function manageCustomGroupsModal() {
         const MODAL_ID = 'kitsune-custom-groups-modal';
         let currentGroups = [];
@@ -64,7 +60,6 @@
 
         function createModal() {
             if (document.getElementById(MODAL_ID)) return;
-
             const modalOverlay = document.createElement('div');
             modalOverlay.id = MODAL_ID;
             modalOverlay.className = 'kitsune-modal-overlay';
@@ -111,17 +106,17 @@
                 currentGroups.forEach(group => {
                     const groupEl = document.createElement('div');
                     groupEl.className = 'kitsune-custom-group-item';
+                    groupEl.dataset.id = group.id;
                     groupEl.innerHTML = `
                         <span>${group.name}</span>
                         <div class="kitsune-group-actions">
-                            <button class="kitsune-button kitsune-button-small kitsune-button-secondary" data-id="${group.id}">Editar</button>
-                            <button class="kitsune-button kitsune-button-small kitsune-button-danger" data-id="${group.id}">Excluir</button>
+                            <button class="kitsune-button kitsune-button-small kitsune-button-secondary action-edit">Editar</button>
+                            <button class="kitsune-button kitsune-button-small kitsune-button-danger action-delete">Excluir</button>
                         </div>
                     `;
                     listContainer.appendChild(groupEl);
                 });
             }
-
             btnNewGroup.disabled = currentGroups.length >= MAX_GROUPS;
         }
 
@@ -132,7 +127,6 @@
             const groupNameInput = modal.querySelector('#kitsune-group-name');
             const groupCoordsInput = modal.querySelector('#kitsune-group-coords');
 
-            // Botão para mostrar formulário de novo grupo
             modal.querySelector('#kitsune-btn-new-group').addEventListener('click', () => {
                 editingGroupId = null;
                 formTitle.textContent = 'Criar Novo Grupo';
@@ -142,39 +136,37 @@
                 formView.style.display = 'block';
             });
 
-            // Botão para cancelar edição/criação
             modal.querySelector('#kitsune-btn-cancel-edit').addEventListener('click', () => {
                 formView.style.display = 'none';
                 listView.style.display = 'block';
             });
 
-            // Botão para salvar
             modal.querySelector('#kitsune-btn-save-group').addEventListener('click', () => {
                 const name = groupNameInput.value.trim();
                 const coords = groupCoordsInput.value.trim().split('\n').filter(c => c.match(/\d+\|\d+/));
-
                 if (!name) { alert('O nome do grupo não pode estar vazio.'); return; }
-
-                if (editingGroupId) { // Editando
+                if (editingGroupId) {
                     const group = currentGroups.find(g => g.id === editingGroupId);
                     group.name = name;
                     group.coords = coords;
-                } else { // Criando
+                } else {
                     currentGroups.push({ id: Date.now(), name, coords });
                 }
-
                 saveCustomGroups(currentGroups);
                 renderGroupsList();
                 formView.style.display = 'none';
                 listView.style.display = 'block';
             });
 
-            // Listeners para botões de editar e excluir na lista
             modal.querySelector('#kitsune-custom-groups-list').addEventListener('click', (e) => {
                 const target = e.target;
-                const groupId = parseInt(target.getAttribute('data-id'));
+                const groupItem = target.closest('.kitsune-custom-group-item');
+                if (!groupItem) return;
 
-                if (target.textContent === 'Editar') {
+                const groupId = parseInt(groupItem.dataset.id);
+
+                if (target.classList.contains('action-edit')) {
+                    renderGroupsList(); // Reseta outras confirmações abertas
                     const group = currentGroups.find(g => g.id === groupId);
                     editingGroupId = groupId;
                     formTitle.textContent = `Editar Grupo "${group.name}"`;
@@ -182,14 +174,20 @@
                     groupCoordsInput.value = group.coords.join('\n');
                     listView.style.display = 'none';
                     formView.style.display = 'block';
-                }
-
-                if (target.textContent === 'Excluir') {
-                    if (confirm(`Tem certeza que deseja excluir o grupo "${currentGroups.find(g => g.id === groupId).name}"?`)) {
-                        currentGroups = currentGroups.filter(g => g.id !== groupId);
-                        saveCustomGroups(currentGroups);
-                        renderGroupsList();
-                    }
+                } else if (target.classList.contains('action-delete')) {
+                    renderGroupsList(); // Reseta outras confirmações abertas
+                    const actionsDiv = groupItem.querySelector('.kitsune-group-actions');
+                    actionsDiv.innerHTML = `
+                        <span>Tem certeza?</span>
+                        <button class="kitsune-button kitsune-button-small kitsune-button-secondary action-confirm-no">Não</button>
+                        <button class="kitsune-button kitsune-button-small kitsune-button-success action-confirm-yes">Sim</button>
+                    `;
+                } else if (target.classList.contains('action-confirm-yes')) {
+                    currentGroups = currentGroups.filter(g => g.id !== groupId);
+                    saveCustomGroups(currentGroups);
+                    renderGroupsList();
+                } else if (target.classList.contains('action-confirm-no')) {
+                    renderGroupsList();
                 }
             });
 
@@ -214,7 +212,6 @@
         return { open: show };
     }
 
-    // --- Funções de Integração ---
     async function getOfficialGroups() {
         const groups = [];
         try {
@@ -239,13 +236,12 @@
     async function getCombinedGroups() {
         const officialGroups = await getOfficialGroups();
         const customGroups = getCustomGroups().map(g => ({
-            id: `custom_${g.id}`, // Prefixo para evitar conflito de IDs
-            nome: `[P] ${g.name}` // Prefixo para indicar que é um grupo pessoal
+            id: `custom_${g.id}`,
+            nome: `[P] ${g.name}`
         }));
         return [...officialGroups, ...customGroups];
     }
 
-    // Adiciona estilos e "exporta" as funcionalidades para o script principal
     addModalStyles();
     window.kitsuneModalManager = {
         modal: manageCustomGroupsModal(),
