@@ -35,7 +35,7 @@
         { name: 'Ataque: Aríetes Pesado', troops: { axe: 6650, light: 2900, ram: 450 } },
         { name: 'Defesa: Padrão', troops: { spear: 10250, sword: 10250 } },
         { name: 'Defesa: Com CP', troops: { spear: 7250, sword: 7250, heavy: 1000 } },
-        { name: 'Defesa: Mista com Arqueiros', troops: { spear: 6000, sword: 6000, archer: 6000, heavy: 415 } },
+        { name: 'Defesa: Arqueiros', troops: { spear: 6000, sword: 6000, archer: 6000, heavy: 415 } },
     ];
 
 
@@ -340,3 +340,4 @@
     window.addEventListener('load', () => manager.init());
 
 })();
+
