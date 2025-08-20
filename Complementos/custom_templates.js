@@ -33,13 +33,9 @@
     const defaultTemplates = [
         { name: 'Ataque: Padrão', troops: { axe: 7000, light: 3000, ram: 300 } },
         { name: 'Ataque: Aríetes Pesado', troops: { axe: 6650, light: 2900, ram: 450 } },
-        { name: 'Ataque: Com Arq. a Cavalo', troops: { axe: 6000, light: 2500, marcher: 500, ram: 300 } },
-        { name: 'Ataque: Com Arq. a Cavalo II', troops: { axe: 6100, light: 2100, marcher: 700, ram: 500 } },
         { name: 'Defesa: Padrão', troops: { spear: 10250, sword: 10250 } },
         { name: 'Defesa: Com CP', troops: { spear: 7250, sword: 7250, heavy: 1000 } },
-        { name: 'Defesa: Com CP II', troops: { spear: 9300, sword: 4000, heavy: 1200 } },
         { name: 'Defesa: Mista com Arqueiros', troops: { spear: 6000, sword: 6000, archer: 6000, heavy: 415 } },
-        { name: 'Defesa: Mista com Arqueiros II', troops: { spear: 8300, sword: 3000, archer: 5000, heavy: 700 } }
     ];
 
 
@@ -339,3 +335,4 @@
     window.addEventListener('load', () => manager.init());
 
 })();
+
