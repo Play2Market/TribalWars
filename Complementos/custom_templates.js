@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Modelos de Tropas
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.2
-// @description  Módulo para gerenciar modelos de tropas para o Assistente Kitsune.
+// @version      1.3
+// @description  Módulo para gerenciar modelos de tropas para o Assistente Kitsune, com UI aprimorada.
 // @author       Triky, GPT & Cia
 // @match        *://*/*
 // @grant        none
@@ -57,10 +57,13 @@
             .ktm-modal-header {
                 padding: 12px 20px; background-color: var(--kitsune-bg-darker, #21252b);
                 border-bottom: 1px solid var(--kitsune-border, #4a515e); border-top-left-radius: 10px; border-top-right-radius: 10px;
-                display: flex; justify-content: space-between; align-items: center;
+                display: flex; justify-content: center; align-items: center; position: relative; /* <-- ALTERADO */
             }
             .ktm-modal-header h2 { margin: 0; color: var(--kitsune-accent, #e06c75); font-size: 1.4em; }
-            .ktm-close-button { color: var(--kitsune-text-dark, #8a919e); float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+            .ktm-close-button {
+                color: var(--kitsune-text-dark, #8a919e); font-size: 28px; font-weight: bold; cursor: pointer;
+                position: absolute; right: 15px; top: 50%; transform: translateY(-50%); /* <-- ALTERADO */
+            }
             .ktm-close-button:hover, .ktm-close-button:focus { color: #fff; }
             .ktm-modal-body { display: flex; padding: 20px; overflow: hidden; gap: 20px; }
             .ktm-template-list, .ktm-template-form { flex: 1; display: flex; flex-direction: column; }
@@ -75,7 +78,11 @@
             .ktm-button-group button { background: none; border: 1px solid var(--kitsune-border, #4a515e); color: var(--kitsune-text, #dcdfe4); cursor: pointer; padding: 4px 8px; border-radius: 3px; margin-left: 5px; }
             .ktm-button-group button:hover { background-color: var(--kitsune-border, #4a515e); }
             .ktm-form-title { font-size: 1.2em; color: var(--kitsune-accent-alt, #98c379); margin-top: 0; margin-bottom: 15px; text-align: center; }
-            .ktm-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 20px; }
+            .ktm-form-grid {
+                display: grid; grid-template-columns: repeat(2, 1fr);
+                gap: 15px 20px; /* <-- ALTERADO (aumentado espaço vertical) */
+                margin-top: 20px; /* <-- NOVO (adicionado espaço acima da grade) */
+            }
             .ktm-form-group { display: flex; flex-direction: column; }
             .ktm-form-group.full-width { grid-column: 1 / -1; }
             .ktm-form-group label { margin-bottom: 5px; font-weight: bold; display: flex; align-items: center; gap: 5px;}
@@ -91,7 +98,7 @@
     }
 
     // =========================================================================================
-    // --- LÓGICA DO MÓDULO ---
+    // --- LÓGICA DO MÓDULO (Inalterada) ---
     // =========================================================================================
     const manager = {
         isEditing: null,
@@ -109,7 +116,6 @@
 
         saveTemplates: function(templates) {
             try {
-                // Normaliza as tropas, garantindo que todas as unidades existam no objeto
                 const normalizedTemplates = templates.map(template => {
                     const normalizedTroops = {};
                     unitConfig.forEach(unit => {
@@ -133,7 +139,6 @@
                 const item = document.createElement('div');
                 item.className = 'ktm-list-item';
 
-                // Lógica para gerar a prévia das tropas
                 const topTroopsHtml = Object.entries(template.troops)
                     .filter(([, count]) => count > 0)
                     .sort(([, countA], [, countB]) => countB - countA)
@@ -335,4 +340,3 @@
     window.addEventListener('load', () => manager.init());
 
 })();
-
