@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Modelos de Tropas
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.1
+// @version      1.2
 // @description  Módulo para gerenciar modelos de tropas para o Assistente Kitsune.
 // @author       Triky, GPT & Cia
 // @match        *://*/*
@@ -70,8 +70,12 @@
             .ktm-template-list, .ktm-template-form { flex: 1; display: flex; flex-direction: column; }
             .ktm-template-list { min-width: 200px; }
             .ktm-scroll-container { overflow-y: auto; padding-right: 10px; border: 1px solid var(--kitsune-border, #4a515e); border-radius: 5px; background-color: var(--kitsune-bg-darker, #21252b); padding: 10px; flex-grow: 1;}
-            .ktm-list-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-radius: 4px; margin-bottom: 5px; background-color: var(--kitsune-bg-light, #3a404a); }
-            .ktm-list-item span { font-weight: bold; }
+            .ktm-list-item { display: block; padding: 8px; border-radius: 4px; margin-bottom: 5px; background-color: var(--kitsune-bg-light, #3a404a); }
+            .ktm-list-item-header { display: flex; justify-content: space-between; align-items: center; }
+            .ktm-list-item-header span { font-weight: bold; }
+            .ktm-troop-preview { display: flex; gap: 12px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--kitsune-bg, #282c34); }
+            .ktm-troop-item { display: flex; align-items: center; gap: 4px; font-size: 0.9em; color: var(--kitsune-text-dark, #8a919e); }
+            .ktm-troop-item img { width: 16px; height: 16px; }
             .ktm-button-group button { background: none; border: 1px solid var(--kitsune-border, #4a515e); color: var(--kitsune-text, #dcdfe4); cursor: pointer; padding: 4px 8px; border-radius: 3px; margin-left: 5px; }
             .ktm-button-group button:hover { background-color: var(--kitsune-border, #4a515e); }
             .ktm-form-title { font-size: 1.2em; color: var(--kitsune-accent-alt, #98c379); margin-top: 0; margin-bottom: 15px; text-align: center; }
@@ -132,12 +136,31 @@
             templates.forEach(template => {
                 const item = document.createElement('div');
                 item.className = 'ktm-list-item';
+
+                // Lógica para gerar a prévia das tropas
+                const topTroopsHtml = Object.entries(template.troops)
+                    .filter(([, count]) => count > 0)
+                    .sort(([, countA], [, countB]) => countB - countA)
+                    .slice(0, 4)
+                    .map(([unitId, count]) => {
+                        const unit = unitConfig.find(u => u.id === unitId);
+                        if (!unit) return '';
+                        return `<div class="ktm-troop-item" title="${count} ${unit.name}">
+                                    <img src="${unit.icon}">
+                                    <span>${count > 1000 ? (count/1000).toFixed(1) + 'k' : count}</span>
+                                </div>`;
+                    })
+                    .join('');
+
                 item.innerHTML = `
-                    <span>${template.name}</span>
-                    <div class="ktm-button-group">
-                        <button class="ktm-edit-btn" data-name="${template.name}">Editar</button>
-                        <button class="ktm-delete-btn" data-name="${template.name}">Excluir</button>
+                    <div class="ktm-list-item-header">
+                        <span>${template.name}</span>
+                        <div class="ktm-button-group">
+                            <button class="ktm-edit-btn" data-name="${template.name}">Editar</button>
+                            <button class="ktm-delete-btn" data-name="${template.name}">Excluir</button>
+                        </div>
                     </div>
+                    ${topTroopsHtml ? `<div class="ktm-troop-preview">${topTroopsHtml}</div>` : ''}
                 `;
                 listContainer.appendChild(item);
             });
@@ -220,14 +243,12 @@
 
         // --- Inicialização ---
         init: function() {
-            // --- CÓDIGO NOVO ADICIONADO AQUI ---
             // Verifica se já existem modelos; se não, carrega os padrões.
             const existingTemplates = this.loadTemplates();
             if (existingTemplates.length === 0) {
                 console.log('Kitsune: Nenhum modelo encontrado. Carregando modelos padrão.');
                 this.saveTemplates(defaultTemplates);
             }
-            // --- FIM DO CÓDIGO NOVO ---
 
             // Injetar CSS
             const style = document.createElement('style');
