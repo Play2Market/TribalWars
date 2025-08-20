@@ -1,20 +1,23 @@
 // ==UserScript==
 // @name         Kitsune - Módulo de Grupos Personalizados
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.3
-// @description  Módulo para gerenciar grupos personalizados no Assistente Kitsune.
+// @version      2.0
+// @description  Módulo para gerenciar grupos personalizados e sincronizar grupos premium no Assistente Kitsune.
 // @author       Triky, GPT & Cia
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    const STORAGE_KEY = `kitsune_groups_${game_data.world}`;
-    const MAX_GROUPS = 3;
+    // --- CHAVES DE ARMAZENAMENTO ---
+    const CUSTOM_GROUPS_KEY = `kitsune_groups_${game_data.world}`;
+    const PREMIUM_CACHE_KEY = `kitsune_premium_groups_cache_${game_data.world}`;
+    const CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hora
 
+    // --- ESTILOS ---
     function addModalStyles() {
         GM_addStyle(`
-            /* --- Estilos do Modal --- */
+            /* --- Estilos do Modal (sem alterações) --- */
             .kitsune-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); z-index: 15000; justify-content: center; align-items: center; }
             .kitsune-modal-overlay.show { display: flex; }
             .kitsune-modal { background-color: #282c34; border: 1px solid #4a515e; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); width: 600px; max-width: 90%; display: flex; flex-direction: column; }
@@ -50,13 +53,14 @@
         `);
     }
 
-    // --- Funções de Dados (CRUD) ---
-    function getCustomGroups() { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-    function saveCustomGroups(groups) { localStorage.setItem(STORAGE_KEY, JSON.stringify(groups)); }
+    // --- FUNÇÕES DE DADOS (GRUPOS PERSONALIZADOS) ---
+    function getCustomGroups() { return JSON.parse(localStorage.getItem(CUSTOM_GROUPS_KEY) || '[]'); }
+    function saveCustomGroups(groups) { localStorage.setItem(CUSTOM_GROUPS_KEY, JSON.stringify(groups)); }
 
-    // --- Função principal que gerencia o Modal ---
+    // --- LÓGICA DO MODAL DE GRUPOS PERSONALIZADOS (sem alterações) ---
     function manageCustomGroupsModal() {
         const MODAL_ID = 'kitsune-custom-groups-modal';
+        const MAX_GROUPS = 3;
         let currentGroups = [];
         let editingGroupId = null;
         let confirmingDeleteId = null;
@@ -99,8 +103,8 @@
         }
 
         function renderGroupsList() {
-            const listContainer = document.querySelector(`#${MODAL_ID} #kitsune-custom-groups-list`);
-            const btnNewGroup = document.querySelector(`#${MODAL_ID} #kitsune-btn-new-group`);
+            const listContainer = modal.querySelector('#kitsune-custom-groups-list');
+            const btnNewGroup = modal.querySelector('#kitsune-btn-new-group');
             listContainer.innerHTML = '';
 
             if (currentGroups.length === 0) {
@@ -221,9 +225,27 @@
             const modal = document.getElementById(MODAL_ID);
             if (modal) modal.classList.remove('show');
         }
+        
         return { open: show };
     }
 
+    // --- FUNÇÕES DE DADOS (GRUPOS PREMIUM E COMBINADOS) ---
+
+    // Função interna para ler o cache de grupos premium
+    function getPremiumGroupsCache() {
+        try {
+            return JSON.parse(localStorage.getItem(PREMIUM_CACHE_KEY) || '{}');
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // Função interna para salvar o cache de grupos premium
+    function savePremiumGroupsCache(cache) {
+        localStorage.setItem(PREMIUM_CACHE_KEY, JSON.stringify(cache));
+    }
+
+    // Função para buscar os nomes dos grupos premium (oficiais)
     async function getOfficialGroups() {
         const groups = [];
         try {
@@ -245,6 +267,89 @@
         return groups;
     }
 
+    // [NOVO] "Trabalhador" que busca as aldeias de UM grupo premium via iframe
+    function internalGetVillagesViaIframe(groupId) {
+        return new Promise((resolve, reject) => {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            
+            // Navega diretamente para a página do grupo específico
+            const groupUrl = TribalWars.buildURL('', 'overview_villages', { mode: 'groups', type: 'dynamic', group: groupId });
+            iframe.src = groupUrl;
+
+            iframe.onload = () => {
+                try {
+                    const doc = iframe.contentDocument;
+                    if (!doc) {
+                        reject(new Error("Não foi possível acessar o conteúdo do iframe."));
+                        return;
+                    }
+                    
+                    const villages = [];
+                    const villageElements = doc.querySelectorAll('#results_preview .quickedit-vn');
+                    
+                    villageElements.forEach(el => {
+                        const id = el.dataset.id;
+                        const label = el.querySelector('.quickedit-label').textContent.trim();
+                        
+                        // Extrai as coordenadas do final do texto "Nome (XXX|YYY) KZZ"
+                        const coordMatch = label.match(/(\d+\|\d+)/);
+                        const coords = coordMatch ? coordMatch[1] : null;
+
+                        if (id && coords) {
+                            villages.push({ id, coords });
+                        }
+                    });
+
+                    resolve(villages);
+
+                } catch (e) {
+                    reject(e);
+                } finally {
+                    iframe.remove();
+                }
+            };
+
+            iframe.onerror = () => {
+                reject(new Error("Erro ao carregar o iframe."));
+                iframe.remove();
+            };
+
+            document.body.appendChild(iframe);
+        });
+    }
+
+    // [NOVO] "Gerenciador" que sincroniza TODOS os grupos premium, usando o "trabalhador"
+    async function syncPremiumGroups(statusCallback = () => {}) {
+        console.log("Kitsune: Iniciando sincronização de grupos premium...");
+        statusCallback("Sincronizando...");
+        const officialGroups = await getOfficialGroups();
+        const cache = getPremiumGroupsCache();
+
+        for (const group of officialGroups) {
+            try {
+                console.log(`Buscando aldeias do grupo: ${group.nome} (${group.id})`);
+                statusCallback(`Sincronizando: ${group.nome}...`);
+                const villages = await internalGetVillagesViaIframe(group.id);
+                cache[group.id] = {
+                    timestamp: Date.now(),
+                    villages: villages
+                };
+                console.log(`Grupo ${group.nome} sincronizado com ${villages.length} aldeias.`);
+            } catch (error) {
+                console.error(`Falha ao sincronizar o grupo ${group.nome}:`, error);
+            }
+        }
+
+        savePremiumGroupsCache(cache);
+        statusCallback("Sincronização concluída!");
+        console.log("Kitsune: Sincronização de grupos premium concluída.");
+        setTimeout(() => statusCallback(""), 2000); // Limpa a mensagem de status
+    }
+
+    // --- FUNÇÕES PÚBLICAS DO MÓDULO ---
+
+    // Retorna a lista combinada de grupos (nomes) para popular seletores
     async function getCombinedGroups() {
         const officialGroups = await getOfficialGroups();
         const customGroups = getCustomGroups().map(g => ({
@@ -253,11 +358,42 @@
         }));
         return [...officialGroups, ...customGroups];
     }
+    
+    // [NOVO] Retorna a lista de aldeias para um ID de grupo específico
+    function getVillagesFromGroup(groupId) {
+        if (typeof groupId === 'string' && groupId.startsWith('custom_')) {
+            // É um grupo personalizado
+            const customId = parseInt(groupId.replace('custom_', ''));
+            const customGroups = getCustomGroups();
+            const group = customGroups.find(g => g.id === customId);
+            // Retorna no formato { id, coords } para consistência
+            return group ? group.coords.map(coord => ({ id: null, coords: coord })) : [];
+        } else {
+            // É um grupo premium, busca no cache
+            const cache = getPremiumGroupsCache();
+            const groupData = cache[groupId];
 
+            if (groupData && (Date.now() - groupData.timestamp < CACHE_DURATION_MS)) {
+                return groupData.villages; // Retorna a lista de aldeias do cache
+            }
+            // Se não estiver no cache ou estiver expirado, retorna vazio.
+            // A sincronização deve ser chamada ativamente pelo script principal.
+            return [];
+        }
+    }
+
+    // --- INICIALIZAÇÃO E EXPOSIÇÃO DO MÓDULO ---
     addModalStyles();
+    
+    // Expõe as funções na janela para que outros módulos possam usá-las
     window.kitsuneModalManager = {
+        // Funções antigas
         modal: manageCustomGroupsModal(),
-        getCombinedGroups: getCombinedGroups
+        getCombinedGroups: getCombinedGroups,
+
+        // Novas funções para o recrutador
+        getVillagesFromGroup: getVillagesFromGroup,
+        syncPremiumGroups: syncPremiumGroups
     };
 
 })();
