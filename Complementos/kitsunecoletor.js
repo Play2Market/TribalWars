@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune | Módulo Coletor de Aldeias
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.1
+// @version      1.2
 // @description  Coleta e gerencia um mapa de Coordenada->ID de todas as aldeias do jogador, com sistema de cache por jogador.
 // @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
@@ -18,12 +18,9 @@
     console.log("🚀 Kitsune | Módulo Coletor de Aldeias está sendo carregado...");
 
     const KitsuneVillageManager = (function() {
-        // ### LÓGICA ALTERADA AQUI ###
-        // A chave do cache agora é única para cada jogador.
         const CACHE_KEY_BASE = 'kitsune_village_map_cache_';
         const PLAYER_ID = typeof game_data !== 'undefined' ? game_data.player.id : 'unknown_player';
         const CACHE_KEY = `${CACHE_KEY_BASE}${PLAYER_ID}`;
-        // ##########################
 
         const CACHE_TIME_MS = 60 * 60 * 1000; // 60 minutos
         let villageMap = {};
@@ -82,15 +79,22 @@
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
             iframe.src = '/game.php?screen=overview_villages';
+
+            // ### LÓGICA ALTERADA AQUI ###
             iframe.onload = () => {
-                try {
-                    coletarAldeiasDoDOM(iframe.contentDocument);
-                } catch (e) {
-                     console.error("🔥 Kitsune Coletor: Falha grave ao coletar via iframe.", e);
-                } finally {
-                    iframe.remove();
-                }
+                console.log("⏳ Kitsune Coletor: Iframe carregado. Aguardando 1.5s para a renderização da tabela...");
+                setTimeout(() => {
+                    try {
+                        coletarAldeiasDoDOM(iframe.contentDocument);
+                    } catch (e) {
+                         console.error("🔥 Kitsune Coletor: Falha grave ao coletar via iframe.", e);
+                    } finally {
+                        iframe.remove();
+                    }
+                }, 1500); // Pausa de 1.5 segundos para garantir que a tabela foi renderizada
             };
+            // ###########################
+
             document.body.appendChild(iframe);
         }
 
