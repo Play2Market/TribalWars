@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Kitsune | Módulo Coletor de Aldeias
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.0
-// @description  Coleta e gerencia um mapa de Coordenada->ID de todas as aldeias do jogador, com sistema de cache.
+// @version      1.1
+// @description  Coleta e gerencia um mapa de Coordenada->ID de todas as aldeias do jogador, com sistema de cache por jogador.
 // @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
 // @grant        none
@@ -11,7 +11,6 @@
 (function () {
     'use strict';
 
-    // Se o módulo já foi carregado, não faz nada.
     if (window.KitsuneVillageManager) {
         return;
     }
@@ -19,14 +18,20 @@
     console.log("🚀 Kitsune | Módulo Coletor de Aldeias está sendo carregado...");
 
     const KitsuneVillageManager = (function() {
-        const CACHE_KEY = 'kitsune_village_map_cache';
+        // ### LÓGICA ALTERADA AQUI ###
+        // A chave do cache agora é única para cada jogador.
+        const CACHE_KEY_BASE = 'kitsune_village_map_cache_';
+        const PLAYER_ID = typeof game_data !== 'undefined' ? game_data.player.id : 'unknown_player';
+        const CACHE_KEY = `${CACHE_KEY_BASE}${PLAYER_ID}`;
+        // ##########################
+
         const CACHE_TIME_MS = 60 * 60 * 1000; // 60 minutos
         let villageMap = {};
 
         function salvarCache(mapa) {
             const data = { timestamp: Date.now(), map: mapa };
             localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-            console.log('🗺️ Mapa de Aldeias [Coordenada -> ID] salvo no cache.');
+            console.log(`🗺️ Mapa de Aldeias [Coordenada -> ID] salvo no cache para o jogador ${PLAYER_ID}.`);
         }
 
         function lerCache() {
@@ -55,7 +60,7 @@
                 if (idElement && coordElement) {
                     const id = idElement.dataset.id;
                     const textoCoord = coordElement.textContent;
-                    const match = textoCoord.match(/\((\d+\|\d+)\)/); // Extrai a coordenada (XXX|YYY)
+                    const match = textoCoord.match(/\((\d+\|\d+)\)/);
 
                     if (match) {
                         const coordenada = match[1];
@@ -91,21 +96,18 @@
 
         function init() {
             const cache = lerCache();
-            // Se a página atual já for a de visualização, sempre coletamos para garantir os dados mais frescos.
             if (window.location.href.includes('screen=overview_villages')) {
                  console.log('📍 Kitsune Coletor: Na página de visualização. Coletando dados frescos...');
                  coletarAldeiasDoDOM(document);
             } else if (cacheValido(cache)) {
                 villageMap = cache.map;
-                console.log('📦 Kitsune Coletor: Mapa de Aldeias carregado do cache.', villageMap);
+                console.log(`📦 Kitsune Coletor: Mapa de Aldeias carregado do cache para o jogador ${PLAYER_ID}.`, villageMap);
             } else {
                 console.log('♻️ Kitsune Coletor: Cache inválido ou ausente. Agendando nova coleta...');
-                // Usamos um pequeno timeout para não sobrecarregar a inicialização da página.
                 setTimeout(iniciarColeta, 1500);
             }
         }
 
-        // Expor as funções publicamente
         return {
             init: init,
             getMap: () => villageMap,
@@ -113,10 +115,7 @@
         };
     })();
 
-    // Disponibiliza o manager globalmente para que o script principal possa usá-lo
     window.KitsuneVillageManager = KitsuneVillageManager;
-
-    // Inicializa o módulo assim que o script é carregado
     window.KitsuneVillageManager.init();
 
 })();
