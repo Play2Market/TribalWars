@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune | Módulo Coletor de Aldeias
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.2
+// @version      1.3
 // @description  Coleta e gerencia um mapa de Coordenada->ID de todas as aldeias do jogador, com sistema de cache por jogador.
 // @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
@@ -78,9 +78,11 @@
             console.log("🕵️ Kitsune Coletor: Iniciando coleta de aldeias via iframe...");
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
-            iframe.src = '/game.php?screen=overview_villages';
-
             // ### LÓGICA ALTERADA AQUI ###
+            // Força o iframe a abrir a página no modo de produção.
+            iframe.src = '/game.php?screen=overview_villages&mode=prod';
+            // ###########################
+
             iframe.onload = () => {
                 console.log("⏳ Kitsune Coletor: Iframe carregado. Aguardando 1.5s para a renderização da tabela...");
                 setTimeout(() => {
@@ -91,19 +93,17 @@
                     } finally {
                         iframe.remove();
                     }
-                }, 1500); // Pausa de 1.5 segundos para garantir que a tabela foi renderizada
+                }, 1500);
             };
-            // ###########################
 
             document.body.appendChild(iframe);
         }
 
         function init() {
             const cache = lerCache();
-            if (window.location.href.includes('screen=overview_villages')) {
-                 console.log('📍 Kitsune Coletor: Na página de visualização. Coletando dados frescos...');
-                 coletarAldeiasDoDOM(document);
-            } else if (cacheValido(cache)) {
+            // A coleta a partir da página atual foi movida para dentro do 'forceUpdate' para simplificar.
+            // A inicialização sempre usará o cache ou um iframe.
+            if (cacheValido(cache)) {
                 villageMap = cache.map;
                 console.log(`📦 Kitsune Coletor: Mapa de Aldeias carregado do cache para o jogador ${PLAYER_ID}.`, villageMap);
             } else {
@@ -111,11 +111,21 @@
                 setTimeout(iniciarColeta, 1500);
             }
         }
+        
+        // Função para ser chamada quando a atualização é na própria página de visualização.
+        function forceUpdateFromCurrentPage() {
+            if (window.location.href.includes('screen=overview_villages')) {
+                 console.log('📍 Kitsune Coletor: Na página de visualização. Coletando dados frescos...');
+                 coletarAldeiasDoDOM(document);
+            } else {
+                iniciarColeta();
+            }
+        }
 
         return {
             init: init,
             getMap: () => villageMap,
-            forceUpdate: iniciarColeta
+            forceUpdate: forceUpdateFromCurrentPage // Agora a função pública é mais inteligente
         };
     })();
 
