@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Kitsune - Módulo de Grupos Personalizados
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      2.0
+// @version      2.1
 // @description  Módulo para gerenciar grupos personalizados e sincronizar grupos premium no Assistente Kitsune.
-// @author       Triky, GPT & Cia
+// @author       Triky, GPT & Cia (Correção por Gemini)
 // ==/UserScript==
 
 (function () {
@@ -57,16 +57,23 @@
     function getCustomGroups() { return JSON.parse(localStorage.getItem(CUSTOM_GROUPS_KEY) || '[]'); }
     function saveCustomGroups(groups) { localStorage.setItem(CUSTOM_GROUPS_KEY, JSON.stringify(groups)); }
 
-    // --- LÓGICA DO MODAL DE GRUPOS PERSONALIZADOS (sem alterações) ---
+    // --- LÓGICA DO MODAL DE GRUPOS PERSONALIZADOS ---
     function manageCustomGroupsModal() {
         const MODAL_ID = 'kitsune-custom-groups-modal';
         const MAX_GROUPS = 3;
+        
+        // [CORREÇÃO] A variável 'modal' é declarada aqui para ser acessível por todas as funções aninhadas.
+        let modal; 
         let currentGroups = [];
         let editingGroupId = null;
         let confirmingDeleteId = null;
 
         function createModal() {
-            if (document.getElementById(MODAL_ID)) return;
+            if (document.getElementById(MODAL_ID)) {
+                modal = document.getElementById(MODAL_ID); // [CORREÇÃO] Se o modal já existe, apenas o referencia.
+                return;
+            }
+            
             const modalOverlay = document.createElement('div');
             modalOverlay.id = MODAL_ID;
             modalOverlay.className = 'kitsune-modal-overlay';
@@ -99,10 +106,14 @@
                     </div>
                 </div>`;
             document.body.appendChild(modalOverlay);
-            bindUIEvents(modalOverlay);
+            
+            // [CORREÇÃO] Atribui o elemento criado à variável de escopo superior.
+            modal = modalOverlay; 
+            bindUIEvents();
         }
 
         function renderGroupsList() {
+            // [CORREÇÃO] Usa a variável 'modal' do escopo superior, que agora está sempre definida.
             const listContainer = modal.querySelector('#kitsune-custom-groups-list');
             const btnNewGroup = modal.querySelector('#kitsune-btn-new-group');
             listContainer.innerHTML = '';
@@ -139,7 +150,8 @@
             btnNewGroup.disabled = currentGroups.length >= MAX_GROUPS;
         }
 
-        function bindUIEvents(modal) {
+        function bindUIEvents() {
+            // [CORREÇÃO] Usa a variável 'modal' do escopo superior.
             const listView = modal.querySelector('#kitsune-groups-list-view');
             const formView = modal.querySelector('#kitsune-groups-form-view');
             const formTitle = modal.querySelector('#kitsune-form-title');
@@ -167,8 +179,10 @@
                 if (!name) { alert('O nome do grupo não pode estar vazio.'); return; }
                 if (editingGroupId) {
                     const group = currentGroups.find(g => g.id === editingGroupId);
-                    group.name = name;
-                    group.coords = coords;
+                    if (group) {
+                        group.name = name;
+                        group.coords = coords;
+                    }
                 } else {
                     currentGroups.push({ id: Date.now(), name, coords });
                 }
@@ -187,12 +201,14 @@
                 if (target.classList.contains('action-edit')) {
                     confirmingDeleteId = null;
                     const group = currentGroups.find(g => g.id === groupId);
-                    editingGroupId = groupId;
-                    formTitle.textContent = `Editar Grupo "${group.name}"`;
-                    groupNameInput.value = group.name;
-                    groupCoordsInput.value = group.coords.join('\n');
-                    listView.style.display = 'none';
-                    formView.style.display = 'block';
+                    if (group) {
+                        editingGroupId = groupId;
+                        formTitle.textContent = `Editar Grupo "${group.name}"`;
+                        groupNameInput.value = group.name;
+                        groupCoordsInput.value = group.coords.join('\n');
+                        listView.style.display = 'none';
+                        formView.style.display = 'block';
+                    }
                 } else if (target.classList.contains('action-delete')) {
                     confirmingDeleteId = groupId;
                     renderGroupsList();
@@ -212,17 +228,16 @@
         }
 
         function show() {
-            createModal();
+            createModal(); // Garante que o modal exista e a variável 'modal' esteja definida
             currentGroups = getCustomGroups();
             confirmingDeleteId = null;
             renderGroupsList();
-            document.querySelector('#kitsune-groups-form-view').style.display = 'none';
-            document.querySelector('#kitsune-groups-list-view').style.display = 'block';
-            document.getElementById(MODAL_ID).classList.add('show');
+            modal.querySelector('#kitsune-groups-form-view').style.display = 'none';
+            modal.querySelector('#kitsune-groups-list-view').style.display = 'block';
+            modal.classList.add('show');
         }
 
         function hide() {
-            const modal = document.getElementById(MODAL_ID);
             if (modal) modal.classList.remove('show');
         }
         
@@ -230,8 +245,8 @@
     }
 
     // --- FUNÇÕES DE DADOS (GRUPOS PREMIUM E COMBINADOS) ---
+    // (Esta seção permanece sem alterações)
 
-    // Função interna para ler o cache de grupos premium
     function getPremiumGroupsCache() {
         try {
             return JSON.parse(localStorage.getItem(PREMIUM_CACHE_KEY) || '{}');
@@ -240,12 +255,10 @@
         }
     }
 
-    // Função interna para salvar o cache de grupos premium
     function savePremiumGroupsCache(cache) {
         localStorage.setItem(PREMIUM_CACHE_KEY, JSON.stringify(cache));
     }
 
-    // Função para buscar os nomes dos grupos premium (oficiais)
     async function getOfficialGroups() {
         const groups = [];
         try {
@@ -267,13 +280,11 @@
         return groups;
     }
 
-    // [NOVO] "Trabalhador" que busca as aldeias de UM grupo premium via iframe
     function internalGetVillagesViaIframe(groupId) {
         return new Promise((resolve, reject) => {
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
             
-            // Navega diretamente para a página do grupo específico
             const groupUrl = TribalWars.buildURL('', 'overview_villages', { mode: 'groups', type: 'dynamic', group: groupId });
             iframe.src = groupUrl;
 
@@ -291,8 +302,6 @@
                     villageElements.forEach(el => {
                         const id = el.dataset.id;
                         const label = el.querySelector('.quickedit-label').textContent.trim();
-                        
-                        // Extrai as coordenadas do final do texto "Nome (XXX|YYY) KZZ"
                         const coordMatch = label.match(/(\d+\|\d+)/);
                         const coords = coordMatch ? coordMatch[1] : null;
 
@@ -300,9 +309,7 @@
                             villages.push({ id, coords });
                         }
                     });
-
                     resolve(villages);
-
                 } catch (e) {
                     reject(e);
                 } finally {
@@ -314,12 +321,10 @@
                 reject(new Error("Erro ao carregar o iframe."));
                 iframe.remove();
             };
-
             document.body.appendChild(iframe);
         });
     }
 
-    // [NOVO] "Gerenciador" que sincroniza TODOS os grupos premium, usando o "trabalhador"
     async function syncPremiumGroups(statusCallback = () => {}) {
         console.log("Kitsune: Iniciando sincronização de grupos premium...");
         statusCallback("Sincronizando...");
@@ -344,12 +349,11 @@
         savePremiumGroupsCache(cache);
         statusCallback("Sincronização concluída!");
         console.log("Kitsune: Sincronização de grupos premium concluída.");
-        setTimeout(() => statusCallback(""), 2000); // Limpa a mensagem de status
+        setTimeout(() => statusCallback(""), 2000);
     }
 
     // --- FUNÇÕES PÚBLICAS DO MÓDULO ---
 
-    // Retorna a lista combinada de grupos (nomes) para popular seletores
     async function getCombinedGroups() {
         const officialGroups = await getOfficialGroups();
         const customGroups = getCustomGroups().map(g => ({
@@ -359,25 +363,18 @@
         return [...officialGroups, ...customGroups];
     }
     
-    // [NOVO] Retorna a lista de aldeias para um ID de grupo específico
     function getVillagesFromGroup(groupId) {
         if (typeof groupId === 'string' && groupId.startsWith('custom_')) {
-            // É um grupo personalizado
             const customId = parseInt(groupId.replace('custom_', ''));
             const customGroups = getCustomGroups();
             const group = customGroups.find(g => g.id === customId);
-            // Retorna no formato { id, coords } para consistência
             return group ? group.coords.map(coord => ({ id: null, coords: coord })) : [];
         } else {
-            // É um grupo premium, busca no cache
             const cache = getPremiumGroupsCache();
             const groupData = cache[groupId];
-
             if (groupData && (Date.now() - groupData.timestamp < CACHE_DURATION_MS)) {
-                return groupData.villages; // Retorna a lista de aldeias do cache
+                return groupData.villages;
             }
-            // Se não estiver no cache ou estiver expirado, retorna vazio.
-            // A sincronização deve ser chamada ativamente pelo script principal.
             return [];
         }
     }
@@ -385,13 +382,9 @@
     // --- INICIALIZAÇÃO E EXPOSIÇÃO DO MÓDULO ---
     addModalStyles();
     
-    // Expõe as funções na janela para que outros módulos possam usá-las
     window.kitsuneModalManager = {
-        // Funções antigas
         modal: manageCustomGroupsModal(),
         getCombinedGroups: getCombinedGroups,
-
-        // Novas funções para o recrutador
         getVillagesFromGroup: getVillagesFromGroup,
         syncPremiumGroups: syncPremiumGroups
     };
