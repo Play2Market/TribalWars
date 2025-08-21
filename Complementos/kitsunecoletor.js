@@ -1,251 +1,122 @@
 // ==UserScript==
-// @name         Kitsune | Módulo Coletor de Dados
-// @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Módulo unificado e otimizado para coletar dados das aldeias (IDs, Recursos, População). Opera de forma autônoma com ciclo de atualização e API para controle externo.
-// @author       De Jesus & Gemini
+// @name         Kitsune | Módulo Coletor de Aldeias
+// @namespace    https://github.com/Play2Market/TribalWars
+// @version      1.0
+// @description  Coleta e gerencia um mapa de Coordenada->ID de todas as aldeias do jogador, com sistema de cache.
+// @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
 // @grant        none
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    const CACHE_KEY = 'kitsuneDadosCache';
-    const DEFAULT_CACHE_MINUTES = 60;
-
-    // --- Estado Interno do Módulo ---
-    let dados = {
-        timestamp: 0,
-        aldeias: {}
-    };
-    let isCollecting = false;
-    let autoUpdateTimer = null;
-
-    // --- Funções de Cache (Unificadas) ---
-    function salvarCache() {
-        dados.timestamp = Date.now();
-        localStorage.setItem(CACHE_KEY, JSON.stringify(dados));
-        console.log(`[KitsuneColetor] ✅ Cache salvo com dados de ${Object.keys(dados.aldeias).length} aldeias.`);
+    // Se o módulo já foi carregado, não faz nada.
+    if (window.KitsuneVillageManager) {
+        return;
     }
 
-    function lerCache() {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return null;
-        try {
-            return JSON.parse(raw);
-        } catch (e) {
-            console.warn('[KitsuneColetor] ⚠️ Erro ao ler cache:', e);
-            return null;
+    console.log("🚀 Kitsune | Módulo Coletor de Aldeias está sendo carregado...");
+
+    const KitsuneVillageManager = (function() {
+        const CACHE_KEY = 'kitsune_village_map_cache';
+        const CACHE_TIME_MS = 60 * 60 * 1000; // 60 minutos
+        let villageMap = {};
+
+        function salvarCache(mapa) {
+            const data = { timestamp: Date.now(), map: mapa };
+            localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+            console.log('🗺️ Mapa de Aldeias [Coordenada -> ID] salvo no cache.');
         }
-    }
 
-    function cacheValido(cache, minutos = DEFAULT_CACHE_MINUTES) {
-        if (!cache || !cache.timestamp) return false;
-        const cacheTimeMs = minutos * 60 * 1000;
-        return (Date.now() - cache.timestamp < cacheTimeMs);
-    }
+        function lerCache() {
+            const raw = localStorage.getItem(CACHE_KEY);
+            if (!raw) return null;
+            try {
+                return JSON.parse(raw);
+            } catch (e) {
+                console.warn("⚠️ Kitsune Coletor: Erro ao ler cache.", e);
+                return null;
+            }
+        }
 
-    // --- Funções de Coleta (Otimizadas) ---
+        function cacheValido(cache) {
+            return cache && (Date.now() - cache.timestamp < CACHE_TIME_MS);
+        }
 
-    /**
-     * Coleta os IDs de todas as aldeias do jogador.
-     * @returns {Promise<string[]>} Uma promessa que resolve com um array de IDs.
-     */
-    function coletarIdsAldeias() {
-        return new Promise((resolve, reject) => {
-            console.log('[KitsuneColetor] 🔎 Coletando IDs das aldeias...');
+        function coletarAldeiasDoDOM(documento) {
+            const mapaCoordID = {};
+            const linhas = documento.querySelectorAll('#production_table tbody tr');
+
+            linhas.forEach(linha => {
+                const idElement = linha.querySelector('span.quickedit-vn[data-id]');
+                const coordElement = linha.querySelector('span.quickedit-label');
+
+                if (idElement && coordElement) {
+                    const id = idElement.dataset.id;
+                    const textoCoord = coordElement.textContent;
+                    const match = textoCoord.match(/\((\d+\|\d+)\)/); // Extrai a coordenada (XXX|YYY)
+
+                    if (match) {
+                        const coordenada = match[1];
+                        mapaCoordID[coordenada] = id;
+                    }
+                }
+            });
+
+            if (Object.keys(mapaCoordID).length > 0) {
+                villageMap = mapaCoordID;
+                salvarCache(villageMap);
+            } else {
+                console.warn('⚠️ Kitsune Coletor: Nenhuma aldeia encontrada para criar o mapa na página de visualização.');
+            }
+        }
+
+        function iniciarColeta() {
+            console.log("🕵️ Kitsune Coletor: Iniciando coleta de aldeias via iframe...");
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
             iframe.src = '/game.php?screen=overview_villages';
-
             iframe.onload = () => {
                 try {
-                    const doc = iframe.contentDocument;
-                    const links = doc.querySelectorAll('a[href*="screen=overview"]');
-                    const ids = new Set(); // Usar Set para evitar duplicatas
-                    links.forEach(link => {
-                        const match = link.href.match(/village=(\d+)/);
-                        if (match) ids.add(match[1]);
-                    });
-                    iframe.remove();
-                    console.log(`[KitsuneColetor]  ditemukan ${ids.size} aldeias.`);
-                    resolve(Array.from(ids));
+                    coletarAldeiasDoDOM(iframe.contentDocument);
                 } catch (e) {
-                    iframe.remove();
-                    reject(e);
-                }
-            };
-            iframe.onerror = (e) => {
-                iframe.remove();
-                reject(e)
-            };
-            document.body.appendChild(iframe);
-        });
-    }
-
-    /**
-     * Coleta todos os dados de uma única aldeia com um único carregamento de iframe.
-     * @param {string} id - O ID da aldeia a ser processada.
-     * @returns {Promise<object|null>} Uma promessa que resolve com o objeto de dados da aldeia.
-     */
-    function processarAldeia(id) {
-        return new Promise((resolve) => {
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            // A tela 'overview' é uma boa fonte para o game_data geral da aldeia
-            iframe.src = `/game.php?village=${id}&screen=overview`;
-
-            iframe.onload = () => {
-                try {
-                    const win = iframe.contentWindow;
-                    const villageData = win?.game_data?.village;
-
-                    if (!villageData) {
-                        console.warn(`[KitsuneColetor] ⚠️ game_data não encontrado para aldeia ${id}.`);
-                        return resolve(null);
-                    }
-
-                    const { wood, stone, iron, storage_max, pop, pop_max } = villageData;
-
-                    const aldeiaInfo = {
-                        recursos: {
-                            wood: parseInt(wood, 10),
-                            stone: parseInt(stone, 10),
-                            iron: parseInt(iron, 10),
-                            capacidade: parseInt(storage_max, 10),
-                            percWood: parseFloat(((wood / storage_max) * 100).toFixed(2)),
-                            percStone: parseFloat(((stone / storage_max) * 100).toFixed(2)),
-                            percIron: parseFloat(((iron / storage_max) * 100).toFixed(2))
-                        },
-                        populacao: `${pop}/${pop_max}`
-                    };
-
-                    resolve(aldeiaInfo);
-
-                } catch (e) {
-                    console.warn(`[KitsuneColetor] ⚠️ Erro ao processar aldeia ${id}:`, e);
-                    resolve(null);
+                     console.error("🔥 Kitsune Coletor: Falha grave ao coletar via iframe.", e);
                 } finally {
                     iframe.remove();
                 }
             };
-             iframe.onerror = () => {
-                iframe.remove();
-                resolve(null); // Resolve como nulo para não quebrar o loop
-            };
             document.body.appendChild(iframe);
-        });
-    }
-
-
-    /**
-     * Orquestra a coleta completa de dados, de forma sequencial.
-     * @param {function} callback - Função a ser chamada no final da coleta.
-     */
-    async function iniciarColetaCompleta(callback) {
-        if (isCollecting) {
-            console.log('[KitsuneColetor] ⚠️ Coleta já em andamento. Nova solicitação ignorada.');
-            return;
         }
 
-        console.log('[KitsuneColetor] 🔄 Iniciando nova coleta completa de dados...');
-        isCollecting = true;
-        const novasAldeias = {};
-
-        try {
-            const ids = await coletarIdsAldeias();
-            if (!ids || ids.length === 0) {
-                console.warn('[KitsuneColetor] ⚠️ Nenhuma aldeia encontrada para coletar.');
-                return;
-            }
-
-            // Processa as aldeias em sequência para não sobrecarregar
-            for (const id of ids) {
-                const dadosDaAldeia = await processarAldeia(id);
-                if (dadosDaAldeia) {
-                    novasAldeias[id] = dadosDaAldeia;
-                }
-            }
-
-            dados.aldeias = novasAldeias;
-            salvarCache();
-
-        } catch (error) {
-            console.error('[KitsuneColetor] ❌ Erro catastrófico durante a coleta:', error);
-        } finally {
-            isCollecting = false;
-            console.log('[KitsuneColetor] ✨ Coleta completa finalizada.');
-            if (typeof callback === 'function') {
-                callback(dados);
+        function init() {
+            const cache = lerCache();
+            // Se a página atual já for a de visualização, sempre coletamos para garantir os dados mais frescos.
+            if (window.location.href.includes('screen=overview_villages')) {
+                 console.log('📍 Kitsune Coletor: Na página de visualização. Coletando dados frescos...');
+                 coletarAldeiasDoDOM(document);
+            } else if (cacheValido(cache)) {
+                villageMap = cache.map;
+                console.log('📦 Kitsune Coletor: Mapa de Aldeias carregado do cache.', villageMap);
+            } else {
+                console.log('♻️ Kitsune Coletor: Cache inválido ou ausente. Agendando nova coleta...');
+                // Usamos um pequeno timeout para não sobrecarregar a inicialização da página.
+                setTimeout(iniciarColeta, 1500);
             }
         }
-    }
 
+        // Expor as funções publicamente
+        return {
+            init: init,
+            getMap: () => villageMap,
+            forceUpdate: iniciarColeta
+        };
+    })();
 
-    // --- API Pública do Módulo ---
-    const KitsuneColetor = {
-        /**
-         * Retorna os últimos dados coletados (do cache ou da coleta mais recente).
-         * @returns {object}
-         */
-        getDados: function() {
-            return dados;
-        },
+    // Disponibiliza o manager globalmente para que o script principal possa usá-lo
+    window.KitsuneVillageManager = KitsuneVillageManager;
 
-        /**
-         * Força o início de uma nova coleta de dados.
-         * @param {function} callback - (Opcional) Função a ser chamada quando a coleta terminar.
-         */
-        forcarAtualizacao: function(callback) {
-            // Limpa o timer antigo para evitar execuções sobrepostas
-            if (autoUpdateTimer) clearTimeout(autoUpdateTimer);
-            iniciarColetaCompleta(callback);
-        },
-
-        /**
-         * Inicia (ou reinicia) o ciclo de atualização automática.
-         * @param {number} minutos - O intervalo em minutos para as atualizações.
-         */
-        iniciarCiclo: function(minutos = DEFAULT_CACHE_MINUTES) {
-            if (autoUpdateTimer) clearTimeout(autoUpdateTimer);
-
-            const executarEAgendar = async () => {
-                // Se não estivermos no meio de uma coleta forçada, atualiza
-                if (!isCollecting) {
-                   await iniciarColetaCompleta();
-                }
-                // Agenda a próxima execução
-                autoUpdateTimer = setTimeout(executarEAgendar, minutos * 60 * 1000);
-                 console.log(`[KitsuneColetor] ⏰ Próxima atualização automática agendada para daqui a ${minutos} minutos.`);
-            };
-
-            // Agenda o primeiro ciclo
-            autoUpdateTimer = setTimeout(executarEAgendar, minutos * 60 * 1000);
-            console.log(`[KitsuneColetor] ⏰ Ciclo de atualização automática iniciado. Intervalo: ${minutos} minutos.`);
-        }
-    };
-
-
-    // --- Lógica de Inicialização ---
-    function init() {
-        const cache = lerCache();
-
-        if (cacheValido(cache)) {
-            dados = cache;
-            console.log('[KitsuneColetor] 📦 Dados carregados do cache.');
-        } else {
-            console.log('[KitsuneColetor] 🌬️ Cache vazio ou expirado. Iniciando primeira coleta...');
-            iniciarColetaCompleta();
-        }
-
-        // Inicia o ciclo automático independentemente do cache
-        KitsuneColetor.iniciarCiclo();
-
-        // Expõe a API para outros scripts
-        window.KitsuneColetor = KitsuneColetor;
-    }
-
-    init();
+    // Inicializa o módulo assim que o script é carregado
+    window.KitsuneVillageManager.init();
 
 })();
