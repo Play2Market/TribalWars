@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune - Recruiter Execution Manager
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.1
+// @version      2.0
 // @description  Módulo "cérebro" que gerencia e executa o ciclo de recrutamento do Assistente Kitsune.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
@@ -13,6 +13,7 @@
         
         timer: null,
         estaRodando: false,
+        filaDeTarefasGlobal: [], // [NOVO] Mantém a fila de tarefas do ciclo atual
 
         start: function() {
             if (this.estaRodando) {
@@ -33,7 +34,6 @@
 
         cicloPrincipal: async function() {
             if (!this.estaRodando) return;
-
             console.log("Kitsune ExecutionManager: Executando um novo ciclo...");
 
             const config = window.KitsuneRecruiterUIManager.lerConfiguracoes();
@@ -43,61 +43,97 @@
                 this.agendarProximoCiclo(30000);
                 return;
             }
-
-            // =================================================================================
-            // ETAPA 2: Gerar a fila de ações (aldeias para processar) - LÓGICA IMPLEMENTADA
-            // =================================================================================
             
-            const filaDeTarefas = [];
-            const aldeiasJaNaFIla = new Set(); // Usamos um Set para performance e simplicidade
+            this.filaDeTarefasGlobal = [];
+            const aldeiasJaNaFIla = new Set();
 
             for (const regra of config.regras) {
-                // Usamos nosso GroupManager para obter as aldeias do grupo da regra atual
                 const aldeiasDoGrupo = window.kitsuneModalManager.getVillagesFromGroup(regra.idGrupo);
-
                 for (const aldeia of aldeiasDoGrupo) {
-                    // Pula a aldeia se ela já foi adicionada por outra regra (a primeira regra tem prioridade)
-                    if (aldeiasJaNaFIla.has(aldeia.id)) {
+                    if (!aldeia.id || aldeiasJaNaFIla.has(aldeia.id)) {
                         continue;
                     }
-
-                    // Cria um objeto de "tarefa" com tudo que o worker precisa saber
                     const tarefa = {
                         villageId: aldeia.id,
-                        tropasAlvo: regra.tropas, // As metas de tropas desta regra específica
+                        tropasAlvo: regra.tropas,
                         configEdificios: config.configuracoesGerais.edificios
                     };
-
-                    filaDeTarefas.push(tarefa);
+                    this.filaDeTarefasGlobal.push(tarefa);
                     aldeiasJaNaFIla.add(aldeia.id);
                 }
             }
             
-            console.log(`Kitsune ExecutionManager: Fila de tarefas gerada com ${filaDeTarefas.length} aldeias.`);
-            console.log(filaDeTarefas); // Mostra a fila de tarefas no console para depuração
-
-            // =================================================================================
-
-            // ETAPA 3: Processar a fila usando os workers (iframes)
-            // (Ainda vamos implementar esta parte)
-            console.log("TODO: Processar a fila de aldeias com os iframes.");
+            console.log(`Kitsune ExecutionManager: Fila de tarefas gerada com ${this.filaDeTarefasGlobal.length} aldeias.`);
+            
+            // ETAPA 3: Processar a fila usando os workers (iframes) - LÓGICA IMPLEMENTADA
+            this.processarFila();
             
             const minMs = this.converterTempoParaMs(config.configuracoesGerais.intervaloMin);
             const maxMs = this.converterTempoParaMs(config.configuracoesGerais.intervaloMax);
             this.agendarProximoCiclo(minMs, maxMs);
         },
 
+        // [NOVO] Gerenciador do pool de workers (iframes)
+        processarFila: function() {
+            const maxWorkers = 3;
+            let workersAtivos = 0;
+
+            const dispatchNext = () => {
+                // Se não houver mais tarefas na fila, encerra.
+                if (this.filaDeTarefasGlobal.length === 0) {
+                    if (workersAtivos === 0) {
+                        console.log("%cKitsune ExecutionManager: Todas as tarefas da fila foram concluídas.", "color:lightgreen;");
+                    }
+                    return;
+                }
+                
+                // Pega a próxima tarefa e remove da fila global
+                const tarefa = this.filaDeTarefasGlobal.shift();
+                workersAtivos++;
+
+                // Chama o nosso IframeWorker para processar a tarefa
+                window.KitsuneIframeWorker.processarAldeia(tarefa)
+                    .then(resultado => console.log(`%c${resultado}`, "color:lightgreen;"))
+                    .catch(erro => console.error(`%c${erro}`, "color:red;"))
+                    .finally(() => {
+                        // Quando o worker termina (com sucesso ou erro), decrementa o contador
+                        workersAtivos--;
+                        
+                        // Aguarda um tempo aleatório para simular comportamento humano antes de iniciar a próxima tarefa
+                        const delayHumano = Math.random() * 3000 + 1000; // entre 1 e 4 segundos
+                        setTimeout(() => {
+                            // Tenta despachar a próxima tarefa da fila
+                            if (this.estaRodando) {
+                                dispatchNext();
+                            }
+                        }, delayHumano);
+                    });
+            };
+
+            // Inicia o número máximo de workers para começar o processo
+            for (let i = 0; i < maxWorkers && this.filaDeTarefasGlobal.length > 0; i++) {
+                dispatchNext();
+            }
+        },
+
         agendarProximoCiclo: function(minMs, maxMs = null) {
             if (!this.estaRodando) return;
+            // Só agenda o próximo ciclo se a fila de tarefas estiver vazia.
+            if (this.filaDeTarefasGlobal.length > 0) {
+                console.log("Kitsune ExecutionManager: Aguardando a fila atual de tarefas terminar antes de agendar o próximo ciclo.");
+                // Verifica novamente em 10 segundos.
+                setTimeout(() => this.agendarProximoCiclo(minMs, maxMs), 10000);
+                return;
+            }
+
             const delay = maxMs ? Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs : minMs;
-            console.log(`Kitsune ExecutionManager: Próximo ciclo em ${(delay / 1000 / 60).toFixed(2)} minutos.`);
+            console.log(`Kitsune ExecutionManager: Próximo ciclo agendado em ${(delay / 1000 / 60).toFixed(2)} minutos.`);
             
-            // Usamos .bind(this) para garantir que o 'this' dentro do cicloPrincipal seja o nosso objeto
             this.timer = setTimeout(this.cicloPrincipal.bind(this), delay);
         },
         
         converterTempoParaMs: function(tempo) {
-            if (!tempo) return 60000; // Valor padrão de 1 minuto caso o tempo seja inválido
+            if (!tempo) return 60000;
             const partes = tempo.split(':');
             const horas = parseInt(partes[0], 10) || 0;
             const minutos = parseInt(partes[1], 10) || 0;
@@ -107,11 +143,4 @@
     };
 
     console.log("Kitsune: Módulo ExecutionManager carregado.");
-    
-    // NOTA: Para iniciar o processo, o script principal (Projeto Kitsune) precisará
-    // de um botão que chame:
-    // window.KitsuneRecruiterExecutionManager.start();
-    // E outro que chame:
-    // window.KitsuneRecruiterExecutionManager.stop();
-
 })();
