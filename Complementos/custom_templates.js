@@ -32,8 +32,6 @@
     // --- LISTA DE MODELOS PADRÃO ---
     const defaultTemplates = [
         { name: 'Ataque: Padrão', troops: { axe: 7000, light: 3000, ram: 300 } },
-        { name: 'Ataque: Aríetes Pesado', troops: { axe: 6650, light: 2900, ram: 450 } },
-        { name: 'Defesa: Padrão', troops: { spear: 10250, sword: 10250 } },
         { name: 'Defesa: Com CP', troops: { spear: 7250, sword: 7250, heavy: 1000 } },
         { name: 'Defesa: Com ARQ', troops: { spear: 6000, sword: 6000, archer: 6000, heavy: 415 } },
     ];
@@ -340,5 +338,6 @@
     window.addEventListener('load', () => manager.init());
 
 })();
+
 
 
