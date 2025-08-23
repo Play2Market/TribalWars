@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune | Módulo de Configurações
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.3-FIXED
+// @version      1.4-Constructor-Timer
 // @description  Gerencia o salvamento e carregamento de configurações no localStorage de forma automática e por jogador.
 // @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
@@ -15,7 +15,7 @@
         return;
     }
 
-    console.log("💾 Kitsune | Módulo de Configurações (v1.3) está sendo carregado...");
+    console.log("💾 Kitsune | Módulo de Configurações (v1.4) está sendo carregado...");
 
     const KitsuneSettingsManager = (function() {
         const PLAYER_ID = typeof game_data !== 'undefined' ? game_data.player.id : 'unknown_player';
@@ -26,6 +26,10 @@
             lastTab: 'dashboard',
             saqueador: { A: {}, B: {}, C: {} },
             recrutador: [{}, {}],
+            construtorConfig: { // NOVO
+                tempoMin: '00:05:00',
+                tempoMax: '00:15:00'
+            },
             recrutadorConfig: {
                 barracks: { lote: '1', filas: '10' },
                 stable: { lote: '1', filas: '10' },
@@ -38,7 +42,6 @@
 
         let settings = {};
 
-        // Função de mesclagem profunda para garantir que as configurações aninhadas não sejam perdidas
         function deepMerge(target, source) {
             let output = { ...target };
             if (isObject(target) && isObject(source)) {
@@ -77,17 +80,12 @@
         function getSettings() {
             return settings;
         }
-        
-        function updateSettings(newSettings) {
-            settings = newSettings;
-            save();
-        }
 
         load();
 
         return {
             get: getSettings,
-            save: save, // Expondo a função save para ser chamada diretamente
+            save: save,
         };
     })();
 
