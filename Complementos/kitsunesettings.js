@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune | Módulo de Configurações
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.2
+// @version      1.3-FIXED
 // @description  Gerencia o salvamento e carregamento de configurações no localStorage de forma automática e por jogador.
 // @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
@@ -15,7 +15,7 @@
         return;
     }
 
-    console.log("💾 Kitsune | Módulo de Configurações (v1.2) está sendo carregado...");
+    console.log("💾 Kitsune | Módulo de Configurações (v1.3) está sendo carregado...");
 
     const KitsuneSettingsManager = (function() {
         const PLAYER_ID = typeof game_data !== 'undefined' ? game_data.player.id : 'unknown_player';
@@ -26,6 +26,13 @@
             lastTab: 'dashboard',
             saqueador: { A: {}, B: {}, C: {} },
             recrutador: [{}, {}],
+            recrutadorConfig: {
+                barracks: { lote: '1', filas: '10' },
+                stable: { lote: '1', filas: '10' },
+                garage: { lote: '1', filas: '10' },
+                tempoMin: '00:03:00',
+                tempoMax: '00:12:00'
+            },
             modules: {}
         };
 
@@ -59,11 +66,11 @@
         function load() {
             try {
                 const storedSettings = localStorage.getItem(STORAGE_KEY);
-                settings = storedSettings ? deepMerge(defaultSettings, JSON.parse(storedSettings)) : defaultSettings;
+                settings = storedSettings ? deepMerge(defaultSettings, JSON.parse(storedSettings)) : { ...defaultSettings };
                 console.log(`⚙️ Kitsune Settings: Configurações carregadas para o jogador ${PLAYER_ID}.`);
             } catch (e) {
                 console.error("Kitsune Settings: Erro ao carregar. Usando padrões.", e);
-                settings = defaultSettings;
+                settings = { ...defaultSettings };
             }
         }
 
