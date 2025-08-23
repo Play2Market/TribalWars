@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsune | Módulo de Configurações
 // @namespace    https://github.com/Play2Market/TribalWars
-// @version      1.1
+// @version      1.2
 // @description  Gerencia o salvamento e carregamento de configurações no localStorage de forma automática e por jogador.
 // @author       Triky & Cia
 // @match        *://*.tribalwars.com.br/game.php*
@@ -15,7 +15,7 @@
         return;
     }
 
-    console.log("💾 Kitsune | Módulo de Configurações está sendo carregado...");
+    console.log("💾 Kitsune | Módulo de Configurações (v1.2) está sendo carregado...");
 
     const KitsuneSettingsManager = (function() {
         const PLAYER_ID = typeof game_data !== 'undefined' ? game_data.player.id : 'unknown_player';
@@ -30,19 +30,15 @@
         };
 
         let settings = {};
-        
-        // ### FUNÇÃO DE CORREÇÃO AQUI ###
-        // Função para fazer uma mesclagem "profunda" dos objetos de configuração
+
+        // Função de mesclagem profunda para garantir que as configurações aninhadas não sejam perdidas
         function deepMerge(target, source) {
-            const output = { ...target };
+            let output = { ...target };
             if (isObject(target) && isObject(source)) {
                 Object.keys(source).forEach(key => {
                     if (isObject(source[key])) {
-                        if (!(key in target)) {
-                            Object.assign(output, { [key]: source[key] });
-                        } else {
-                            output[key] = deepMerge(target[key], source[key]);
-                        }
+                        if (!(key in target)) Object.assign(output, { [key]: source[key] });
+                        else output[key] = deepMerge(target[key], source[key]);
                     } else {
                         Object.assign(output, { [key]: source[key] });
                     }
@@ -51,56 +47,42 @@
             return output;
         }
         const isObject = (item) => (item && typeof item === 'object' && !Array.isArray(item));
-        // #############################
 
         function save() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
             } catch (e) {
-                console.error("Kitsune Settings: Erro ao salvar configurações.", e);
+                console.error("Kitsune Settings: Erro ao salvar.", e);
             }
         }
 
         function load() {
             try {
                 const storedSettings = localStorage.getItem(STORAGE_KEY);
-                if (storedSettings) {
-                    // Usa a mesclagem profunda para garantir que os dados aninhados não se percam
-                    settings = deepMerge(defaultSettings, JSON.parse(storedSettings));
-                } else {
-                    settings = defaultSettings;
-                }
+                settings = storedSettings ? deepMerge(defaultSettings, JSON.parse(storedSettings)) : defaultSettings;
                 console.log(`⚙️ Kitsune Settings: Configurações carregadas para o jogador ${PLAYER_ID}.`);
             } catch (e) {
-                console.error("Kitsune Settings: Erro ao carregar. Usando configurações padrão.", e);
+                console.error("Kitsune Settings: Erro ao carregar. Usando padrões.", e);
                 settings = defaultSettings;
             }
         }
 
-        function get(key) {
-            return settings[key];
+        function getSettings() {
+            return settings;
         }
-
-        function set(key, value) {
-            settings[key] = value;
-            save();
-        }
-
-        function update(path, value) {
-            const keys = path.split('.');
-            let current = settings;
-            for (let i = 0; i < keys.length - 1; i++) {
-                current[keys[i]] = current[keys[i]] || {};
-            }
-            current[keys[keys.length - 1]] = value;
+        
+        function updateSettings(newSettings) {
+            settings = newSettings;
             save();
         }
 
         load();
 
-        return { get, set, update, values: () => settings };
+        return {
+            get: getSettings,
+            save: save, // Expondo a função save para ser chamada diretamente
+        };
     })();
 
     window.KitsuneSettingsManager = KitsuneSettingsManager;
-
 })();
