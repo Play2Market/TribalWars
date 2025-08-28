@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      1.0-Initial
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune.
+// @version      1.1-Defensive-Automation
+// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com automação defensiva.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -31,14 +31,12 @@ async function runBuilderModule() {
 async function processVillageConstruction(village, settings, config) {
     console.log(`--- [ ${village.name} ] --- Verificando fila de construção.`);
 
-    // 1. Coletar dados da aldeia via fetch
     const villageData = await fetchVillageData(village.id);
     if (!villageData) return;
 
     const { buildings, resources, population, buildQueue } = villageData;
     const maxQueueSize = parseInt(settings.filas || 1, 10);
 
-    // Se a fila de construção já estiver cheia, não faz nada.
     if (buildQueue.length >= maxQueueSize) {
         console.log(`KITSUNE Construtor: Fila de construção em [${village.name}] já está cheia (${buildQueue.length}/${maxQueueSize}).`);
         return;
@@ -46,14 +44,21 @@ async function processVillageConstruction(village, settings, config) {
 
     let buildingToConstruct = null;
 
-    // 2. Verificar condições especiais (gestão de capacidade)
-    const farmCapacityThreshold = parseFloat(config.fazenda || '0.9'); // ex: 90%
+    // 2. Verificar condições especiais (Gestão de Capacidade e Defesa)
+    const farmCapacityThreshold = parseFloat(settings.fazenda || '0.9');
+    const isAutoWallEnabled = settings.autoMuralha === 'Sim';
+    const minWallLevel = parseInt(settings.nivelMuralha || 0, 10);
+
+    // PRIORIDADE 1: FAZENDA
     if ((population.current / population.max) >= farmCapacityThreshold && buildings.farm < 30) {
         console.log(`KITSUNE Construtor: População em [${village.name}] atingiu o limite. Priorizando Fazenda.`);
         buildingToConstruct = 'farm';
+    } 
+    // << NOVO >> PRIORIDADE 2: MURALHA
+    else if (isAutoWallEnabled && buildings.wall < minWallLevel) {
+        console.log(`KITSUNE Construtor: Automação defensiva ativa. Muralha em [${village.name}] (${buildings.wall}) está abaixo do mínimo (${minWallLevel}). Priorizando Muralha.`);
+        buildingToConstruct = 'wall';
     }
-    
-    // (Futuramente, adicionar lógica do armazém aqui)
 
     // 3. Seguir a lista de construção padrão se nenhuma condição especial for atendida
     if (!buildingToConstruct) {
@@ -64,7 +69,7 @@ async function processVillageConstruction(village, settings, config) {
 
             if (buildings[building] < targetLevel) {
                 buildingToConstruct = building;
-                break; // Encontrou o primeiro edifício da lista que precisa ser evoluído
+                break;
             }
         }
     }
@@ -73,10 +78,6 @@ async function processVillageConstruction(village, settings, config) {
         console.log(`KITSUNE Construtor: Modelo de construção para [${village.name}] está completo.`);
         return;
     }
-
-    // 4. Verificar se a construção é possível (recursos e pré-requisitos)
-    // Esta parte requer uma lógica mais detalhada para verificar os custos, que pode ser adicionada depois.
-    // Por enquanto, vamos tentar construir e deixar o jogo validar.
 
     console.log(`KITSUNE Construtor: Próximo alvo em [${village.name}] é ${buildingToConstruct}.`);
 
@@ -127,10 +128,9 @@ async function sendBuildRequest(villageId, building) {
     const url = `/game.php?village=${villageId}&screen=main&action=build&id=${building}&h=${game_data.csrf}`;
     
     try {
-        const response = await fetch(url, { method: 'GET' }); // A construção no TW é um GET
+        const response = await fetch(url, { method: 'GET' });
         if (response.ok) {
             console.log(`KITSUNE Construtor: Ordem de construção para ${building} enviada.`);
-            // Adiciona uma pequena pausa para o servidor processar.
             await new Promise(resolve => setTimeout(resolve, 500));
         } else {
             console.warn(`KITSUNE Construtor: Falha ao enviar ordem de construção para ${building}. O jogo pode ter recusado (falta de recursos/fila cheia).`);
