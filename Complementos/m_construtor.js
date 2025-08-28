@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      1.5-Village-Getter-Fix-Attempt
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com tentativa de correção no método de obtenção de aldeias.
+// @version      2.0-Stable
+// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com fonte de dados estável.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -17,22 +17,18 @@ async function runBuilderModule() {
         return;
     }
 
-    // --- INÍCIO DA CORREÇÃO ---
-    // Tentando usar o método .get() que é mais genérico.
     if (!window.KitsuneVillageManager) {
-        console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível. O módulo coletor de aldeias pode não ter carregado corretamente.");
+        console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível.");
         return;
     }
-    // Tentativa de usar .get() em vez de .getVillages()
-    const villages = await window.KitsuneVillageManager.get();
-    // --- FIM DA CORREÇÃO ---
+    // CORREÇÃO FINAL: Chama a nova função getVillages() que agora existe e retorna o formato correto.
+    const villages = await window.KitsuneVillageManager.getVillages();
 
     if (!villages || villages.length === 0) {
         console.log("KITSUNE Construtor: Nenhuma aldeia encontrada pelo KitsuneVillageManager.");
         return;
     }
 
-    // Loop principal por todas as aldeias
     for (const village of villages) {
         try {
             await processVillageConstruction(village, builderSettings, builderConfig);
@@ -68,8 +64,7 @@ async function processVillageConstruction(village, settings, config) {
     if ((population.current / population.max) >= farmCapacityThreshold && buildings.farm < 30) {
         console.log(`KITSUNE Construtor: População em [${village.name}] atingiu o limite. Priorizando Fazenda.`);
         buildingToConstruct = 'farm';
-    }
-    else if (isAutoWallEnabled && buildings.wall < minWallLevel) {
+    } else if (isAutoWallEnabled && buildings.wall < minWallLevel) {
         console.log(`KITSUNE Construtor: Automação defensiva ativa. Muralha em [${village.name}] (${buildings.wall}) está abaixo do mínimo (${minWallLevel}). Priorizando Muralha.`);
         buildingToConstruct = 'wall';
     }
