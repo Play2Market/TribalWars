@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      1.2-Robust-Fetching-Fix
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com automação defensiva e busca de dados corrigida.
+// @version      1.3-Village-Source-Fix
+// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com fonte de aldeias corrigida.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -12,14 +12,25 @@ async function runBuilderModule() {
     const builderSettings = settings.construtor || {};
     const builderConfig = settings.construtorConfig || {};
 
-    // Se a Sequência_Construção não estiver definida, interrompe para evitar erros.
     if (typeof Sequência_Construção === 'undefined') {
         console.error("KITSUNE Construtor: A lista de construção 'Sequência_Construção' não foi encontrada. Verifique se o arquivo Lista_PADRAO.js está sendo carregado.");
         return;
     }
 
-    const villages = game_data.player.villages;
-    if (!villages || villages.length === 0) return;
+    // --- INÍCIO DA CORREÇÃO ---
+    // A fonte de aldeias `game_data.player.villages` estava incorreta.
+    // Agora, usamos o KitsuneVillageManager para obter a lista correta de aldeias do jogador.
+    if (!window.KitsuneVillageManager) {
+        console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível. O módulo coletor de aldeias pode não ter carregado corretamente.");
+        return;
+    }
+    const villages = await window.KitsuneVillageManager.getVillages();
+    // --- FIM DA CORREÇÃO ---
+
+    if (!villages || villages.length === 0) {
+        console.log("KITSUNE Construtor: Nenhuma aldeia encontrada pelo KitsuneVillageManager.");
+        return;
+    }
 
     // Loop principal por todas as aldeias
     for (const village of villages) {
@@ -38,7 +49,7 @@ async function processVillageConstruction(village, settings, config) {
     console.log(`--- [ ${village.name} ] --- Verificando fila de construção.`);
 
     const villageData = await fetchVillageData(village.id);
-    if (!villageData) return; // Se a busca de dados falhar, pula para a próxima aldeia
+    if (!villageData) return;
 
     const { buildings, population, buildQueue } = villageData;
     const maxQueueSize = parseInt(settings.filas || 1, 10);
@@ -50,23 +61,19 @@ async function processVillageConstruction(village, settings, config) {
 
     let buildingToConstruct = null;
 
-    // Verificar condições especiais (Gestão de Capacidade e Defesa)
     const farmCapacityThreshold = parseFloat(settings.fazenda || '0.9');
     const isAutoWallEnabled = settings.autoMuralha === 'Sim';
     const minWallLevel = parseInt(settings.nivelMuralha || 0, 10);
 
-    // PRIORIDADE 1: FAZENDA
     if ((population.current / population.max) >= farmCapacityThreshold && buildings.farm < 30) {
         console.log(`KITSUNE Construtor: População em [${village.name}] atingiu o limite. Priorizando Fazenda.`);
         buildingToConstruct = 'farm';
     }
-    // PRIORIDADE 2: MURALHA
     else if (isAutoWallEnabled && buildings.wall < minWallLevel) {
         console.log(`KITSUNE Construtor: Automação defensiva ativa. Muralha em [${village.name}] (${buildings.wall}) está abaixo do mínimo (${minWallLevel}). Priorizando Muralha.`);
         buildingToConstruct = 'wall';
     }
 
-    // Seguir a lista de construção padrão se nenhuma condição especial for atendida
     if (!buildingToConstruct) {
         for (const buildTarget of Sequência_Construção) {
             const [_, __, building, level] = buildTarget.split('_');
@@ -89,7 +96,7 @@ async function processVillageConstruction(village, settings, config) {
 
 
 /**
- * Função auxiliar para buscar dados essenciais da aldeia. (VERSÃO CORRIGIDA)
+ * Função auxiliar para buscar dados essenciais da aldeia.
  */
 async function fetchVillageData(villageId) {
     try {
@@ -103,9 +110,6 @@ async function fetchVillageData(villageId) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
 
-        // --- INÍCIO DA CORREÇÃO ---
-
-        // 1. Obter níveis dos edifícios de forma confiável via JSON da página
         const buildingLevels = {};
         const scriptContent = text.match(/BuildingMain\.buildings = (\{.*?\});/);
         if (scriptContent && scriptContent[1]) {
@@ -115,13 +119,10 @@ async function fetchVillageData(villageId) {
             }
         } else {
             console.error(`KITSUNE Construtor: Não foi possível encontrar os dados de 'BuildingMain.buildings' para a aldeia ${villageId}.`);
-            return null; // Interrompe a execução para esta aldeia se os dados essenciais não forem encontrados
+            return null;
         }
 
-        // 2. Corrigir o seletor da fila de construção
         const buildQueueNodes = doc.querySelectorAll('#build_queue tr[class*="buildorder_"]');
-
-        // --- FIM DA CORREÇÃO ---
 
         const resources = {
             wood: parseInt(doc.getElementById('wood').textContent, 10),
@@ -149,10 +150,9 @@ async function fetchVillageData(villageId) {
 
 
 /**
- * Função auxiliar para enviar a requisição de construção. (VERSÃO CORRIGIDA)
+ * Função auxiliar para enviar a requisição de construção.
  */
 async function sendBuildRequest(villageId, building) {
-    // A ação correta para evoluir um edifício é "upgrade_building"
     const url = `/game.php?village=${villageId}&screen=main&action=upgrade_building&id=${building}&h=${game_data.csrf}`;
     try {
         const response = await fetch(url, {
@@ -160,9 +160,8 @@ async function sendBuildRequest(villageId, building) {
         });
         if (response.ok) {
             console.log(`KITSUNE Construtor: Ordem de construção para ${building} em ${villageId} enviada com sucesso.`);
-            await new Promise(resolve => setTimeout(resolve, 500)); // Pequeno delay para evitar sobrecarga
+            await new Promise(resolve => setTimeout(resolve, 500));
         } else {
-            // Tenta extrair a mensagem de erro do JSON retornado pelo jogo
             try {
                 const errorData = await response.json();
                 console.warn(`KITSUNE Construtor: Falha ao construir ${building} em ${villageId}. Motivo: ${errorData.error}`);
