@@ -1,102 +1,141 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      2.0
+// @version      1.0-Initial
 // @description  Motor lógico para o módulo Construtor do Projeto Kitsune.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
-// Esta função será o coração do módulo Construtor no script principal.
-// Ela não precisa de interface própria, pois será controlada pelo painel do Kitsune.
-
 async function runBuilderModule() {
     console.log("KITSUNE: Módulo Construtor - Verificando construções...");
 
-    // 1. Obter as configurações do painel Kitsune
     const settings = window.KitsuneSettingsManager.get();
-    const builderSettings = settings.construtor; // Ex: { modelo: 'ID_do_modelo', filas: 5, etc... }
-    const targetModelId = builderSettings.modelo;
+    const builderSettings = settings.construtor || {};
+    const builderConfig = settings.construtorConfig || {};
 
-    if (!targetModelId || targetModelId === 'default') {
-        console.warn("Kitsune Construtor: Nenhum modelo de construção selecionado.");
-        // Futuramente, pode-se usar a "Lista_PADRAO.js" como fallback aqui.
-        return;
-    }
+    const villages = game_data.player.villages;
+    if (!villages || villages.length === 0) return;
 
-    // 2. Obter a fila de construção do modelo selecionado
-    // (Isso assume que o módulo 'builder_templates.js' está carregado)
-    const allTemplates = window.KitsuneBuilderModal.getTemplates();
-    const currentTemplate = allTemplates.find(t => t.id === parseInt(targetModelId, 10));
-
-    if (!currentTemplate || currentTemplate.queue.length === 0) {
-        console.warn(`Kitsune Construtor: Modelo "${targetModelId}" não encontrado ou está vazio.`);
-        return;
-    }
-
-    // 3. Obter dados da aldeia atual (níveis dos edifícios)
-    // Usaremos uma função auxiliar para buscar os dados da página principal (main)
-    const villageData = await fetchVillageData(game_data.village.id);
-    if (!villageData) {
-        console.error("Kitsune Construtor: Não foi possível obter os dados da aldeia.");
-        return;
-    }
-
-    const { buildings, buildQueue } = villageData;
-    const maxQueueSlots = builderSettings.filas || 5; // Pega o número de filas das configs
-
-    // 4. Determinar a próxima construção
-    let nextBuild = null;
-    for (const item of currentTemplate.queue) {
-        const currentLevel = parseInt(buildings[item.building] || 0, 10);
-        if (currentLevel < item.level) {
-            nextBuild = { building: item.building, level: currentLevel + 1 };
-            break; // Encontramos o primeiro edifício que precisa de upgrade
+    // Loop principal por todas as aldeias
+    for (const village of villages) {
+        try {
+            await processVillageConstruction(village, builderSettings, builderConfig);
+        } catch (error) {
+            console.error(`KITSUNE Construtor: Erro ao processar a aldeia ${village.name}.`, error);
         }
     }
-
-    if (!nextBuild) {
-        console.log("KITSUNE: Módulo Construtor - Todas as construções do modelo foram concluídas!");
-        // Opcional: Desativar o módulo automaticamente
-        // toggleModule('Construtor', false);
-        return;
-    }
-
-    // 5. Verificar se a fila de construção tem espaço
-    if (buildQueue.length >= maxQueueSlots) {
-        console.log(`Kitsune Construtor: Fila de construção está cheia (${buildQueue.length}/${maxQueueSlots}).`);
-        return;
-    }
-
-    // 6. Enviar a requisição para construir
-    // (A função sendBuildRequest precisará ser criada, usando o método POST do jogo)
-    console.log(`KITSUNE: Módulo Construtor - Tentando evoluir ${nextBuild.building} para o nível ${nextBuild.level}.`);
-    // await sendBuildRequest(nextBuild.building);
-    // KitsuneLogger.add('Construtor', `Construção de ${nextBuild.building} para o nível ${nextBuild.level} iniciada.`);
 }
 
-// --- Funções Auxiliares (a serem adicionadas ao script principal) ---
+/**
+ * Processa a lógica de construção para uma única aldeia.
+ */
+async function processVillageConstruction(village, settings, config) {
+    console.log(`--- [ ${village.name} ] --- Verificando fila de construção.`);
 
-// Função para buscar os níveis de edifícios via AJAX
+    // 1. Coletar dados da aldeia via fetch
+    const villageData = await fetchVillageData(village.id);
+    if (!villageData) return;
+
+    const { buildings, resources, population, buildQueue } = villageData;
+    const maxQueueSize = parseInt(settings.filas || 1, 10);
+
+    // Se a fila de construção já estiver cheia, não faz nada.
+    if (buildQueue.length >= maxQueueSize) {
+        console.log(`KITSUNE Construtor: Fila de construção em [${village.name}] já está cheia (${buildQueue.length}/${maxQueueSize}).`);
+        return;
+    }
+
+    let buildingToConstruct = null;
+
+    // 2. Verificar condições especiais (gestão de capacidade)
+    const farmCapacityThreshold = parseFloat(config.fazenda || '0.9'); // ex: 90%
+    if ((population.current / population.max) >= farmCapacityThreshold && buildings.farm < 30) {
+        console.log(`KITSUNE Construtor: População em [${village.name}] atingiu o limite. Priorizando Fazenda.`);
+        buildingToConstruct = 'farm';
+    }
+    
+    // (Futuramente, adicionar lógica do armazém aqui)
+
+    // 3. Seguir a lista de construção padrão se nenhuma condição especial for atendida
+    if (!buildingToConstruct) {
+        // A variável 'Sequência_Construção' vem do arquivo Lista_PADRAO.js
+        for (const buildTarget of Sequência_Construção) {
+            const [_, __, building, level] = buildTarget.split('_');
+            const targetLevel = parseInt(level, 10);
+
+            if (buildings[building] < targetLevel) {
+                buildingToConstruct = building;
+                break; // Encontrou o primeiro edifício da lista que precisa ser evoluído
+            }
+        }
+    }
+    
+    if (!buildingToConstruct) {
+        console.log(`KITSUNE Construtor: Modelo de construção para [${village.name}] está completo.`);
+        return;
+    }
+
+    // 4. Verificar se a construção é possível (recursos e pré-requisitos)
+    // Esta parte requer uma lógica mais detalhada para verificar os custos, que pode ser adicionada depois.
+    // Por enquanto, vamos tentar construir e deixar o jogo validar.
+
+    console.log(`KITSUNE Construtor: Próximo alvo em [${village.name}] é ${buildingToConstruct}.`);
+
+    // 5. Enviar o comando de construção
+    await sendBuildRequest(village.id, buildingToConstruct);
+}
+
+
+/**
+ * Função auxiliar para buscar dados essenciais da aldeia.
+ */
 async function fetchVillageData(villageId) {
     try {
         const response = await fetch(`/game.php?village=${villageId}&screen=main`);
+        if (!response.ok) return null;
+
         const text = await response.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
 
-        const buildings = {};
         const buildingData = JSON.parse(doc.querySelector('#building_levels').textContent);
-        for (const building in buildingData) {
-            buildings[building] = buildingData[building];
-        }
+        
+        const resources = {
+            wood: parseInt(doc.getElementById('wood').textContent, 10),
+            stone: parseInt(doc.getElementById('stone').textContent, 10),
+            iron: parseInt(doc.getElementById('iron').textContent, 10),
+            storage: parseInt(doc.getElementById('storage').textContent, 10)
+        };
+        
+        const population = {
+            current: parseInt(doc.getElementById('pop_current_label').textContent, 10),
+            max: parseInt(doc.getElementById('pop_max_label').textContent, 10)
+        };
+        
+        const buildQueue = doc.querySelectorAll('#build_queue tr.build_order');
 
-        const buildQueue = Array.from(doc.querySelectorAll('#build_queue tr.buildorder_ongoing, #build_queue tr.buildorder_build')).map(row => {
-            // Extrair dados da fila
-            return {};
-        });
-
-        return { buildings, buildQueue };
+        return { buildings: buildingData, resources, population, buildQueue: Array.from(buildQueue) };
     } catch (error) {
-        console.error("Erro ao buscar dados da aldeia:", error);
+        console.error("KITSUNE Construtor: Falha ao buscar dados da aldeia.", error);
         return null;
+    }
+}
+
+/**
+ * Função auxiliar para enviar a requisição de construção.
+ */
+async function sendBuildRequest(villageId, building) {
+    const url = `/game.php?village=${villageId}&screen=main&action=build&id=${building}&h=${game_data.csrf}`;
+    
+    try {
+        const response = await fetch(url, { method: 'GET' }); // A construção no TW é um GET
+        if (response.ok) {
+            console.log(`KITSUNE Construtor: Ordem de construção para ${building} enviada.`);
+            // Adiciona uma pequena pausa para o servidor processar.
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+            console.warn(`KITSUNE Construtor: Falha ao enviar ordem de construção para ${building}. O jogo pode ter recusado (falta de recursos/fila cheia).`);
+        }
+    } catch (error) {
+        console.error(`KITSUNE Construtor: Erro de rede ao tentar construir ${building}.`, error);
     }
 }
