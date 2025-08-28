@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      2.0-Stable
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com fonte de dados estável.
+// @version      2.2-Smart-Capacity-Check
+// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com verificação inteligente de fila para capacidade.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -21,7 +21,6 @@ async function runBuilderModule() {
         console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível.");
         return;
     }
-    // CORREÇÃO FINAL: Chama a nova função getVillages() que agora existe e retorna o formato correto.
     const villages = await window.KitsuneVillageManager.getVillages();
 
     if (!villages || villages.length === 0) {
@@ -47,7 +46,7 @@ async function processVillageConstruction(village, settings, config) {
     const villageData = await fetchVillageData(village.id);
     if (!villageData) return;
 
-    const { buildings, population, buildQueue, csrf } = villageData;
+    const { buildings, resources, population, buildQueue, csrf } = villageData;
     const maxQueueSize = parseInt(settings.filas || 1, 10);
 
     if (buildQueue.length >= maxQueueSize) {
@@ -55,25 +54,60 @@ async function processVillageConstruction(village, settings, config) {
         return;
     }
 
-    let buildingToConstruct = null;
+    const queuedUpgrades = {};
+    for (const queueItem of buildQueue) {
+        const classMatch = queueItem.className.match(/buildorder_(\w+)/);
+        if (classMatch && classMatch[1]) {
+            const buildingName = classMatch[1];
+            queuedUpgrades[buildingName] = (queuedUpgrades[buildingName] || 0) + 1;
+        }
+    }
+    console.log(`KITSUNE Construtor: Fila atual em [${village.name}]:`, queuedUpgrades);
 
-    const farmCapacityThreshold = parseFloat(settings.fazenda || '0.9');
+    let buildingToConstruct = null;
     const isAutoWallEnabled = settings.autoMuralha === 'Sim';
     const minWallLevel = parseInt(settings.nivelMuralha || 0, 10);
 
-    if ((population.current / population.max) >= farmCapacityThreshold && buildings.farm < 30) {
+    // --- INÍCIO DA LÓGICA DE CAPACIDADE CORRIGIDA ---
+    const farmCapacityThreshold = parseFloat(settings.fazenda || '0.9');
+    const storageCapacityThreshold = parseFloat(settings.armazem || '0.9');
+
+    const isFarmFull = (population.current / population.max) >= farmCapacityThreshold;
+    const isStorageFull = (resources.wood >= resources.storage * storageCapacityThreshold) ||
+                          (resources.stone >= resources.storage * storageCapacityThreshold) ||
+                          (resources.iron >= resources.storage * storageCapacityThreshold);
+
+    // PRIORIDADE 1: GESTÃO DE CAPACIDADE (FAZENDA E ARMAZÉM)
+    // Se a fazenda está cheia E não há upgrade de fazenda na fila E a fazenda não está no nível máximo
+    if (isFarmFull && !queuedUpgrades.farm && buildings.farm < 30) {
         console.log(`KITSUNE Construtor: População em [${village.name}] atingiu o limite. Priorizando Fazenda.`);
         buildingToConstruct = 'farm';
-    } else if (isAutoWallEnabled && buildings.wall < minWallLevel) {
-        console.log(`KITSUNE Construtor: Automação defensiva ativa. Muralha em [${village.name}] (${buildings.wall}) está abaixo do mínimo (${minWallLevel}). Priorizando Muralha.`);
-        buildingToConstruct = 'wall';
+    }
+    // Senão, se o armazém está cheio E não há upgrade de armazém na fila E o armazém não está no nível máximo
+    else if (isStorageFull && !queuedUpgrades.storage && buildings.storage < 30) {
+        console.log(`KITSUNE Construtor: Recursos em [${village.name}] atingiram o limite. Priorizando Armazém.`);
+        buildingToConstruct = 'storage';
+    }
+    // --- FIM DA LÓGICA DE CAPACIDADE CORRIGIDA ---
+
+    // PRIORIDADE 2: MURALHA
+    else if (isAutoWallEnabled) {
+        const effectiveWallLevel = buildings.wall + (queuedUpgrades.wall || 0);
+        if (effectiveWallLevel < minWallLevel) {
+            console.log(`KITSUNE Construtor: Automação defensiva ativa. Nível efetivo da Muralha em [${village.name}] (${effectiveWallLevel}) está abaixo do mínimo (${minWallLevel}). Priorizando Muralha.`);
+            buildingToConstruct = 'wall';
+        }
     }
 
+    // PRIORIDADE 3: LISTA DE CONSTRUÇÃO PADRÃO
     if (!buildingToConstruct) {
         for (const buildTarget of Sequência_Construção) {
             const [_, __, building, level] = buildTarget.split('_');
             const targetLevel = parseInt(level, 10);
-            if (buildings[building] < targetLevel) {
+            
+            const effectiveBuildingLevel = buildings[building] + (queuedUpgrades[building] || 0);
+
+            if (effectiveBuildingLevel < targetLevel) {
                 buildingToConstruct = building;
                 break;
             }
@@ -81,7 +115,7 @@ async function processVillageConstruction(village, settings, config) {
     }
 
     if (!buildingToConstruct) {
-        console.log(`KITSUNE Construtor: Modelo de construção para [${village.name}] está completo.`);
+        console.log(`KITSUNE Construtor: Modelo de construção para [${village.name}], considerando a fila, está completo ou aguardando recursos.`);
         return;
     }
 
@@ -91,7 +125,7 @@ async function processVillageConstruction(village, settings, config) {
 
 
 /**
- * Função auxiliar para buscar dados essenciais da aldeia.
+ * Função auxiliar para buscar dados essenciais da aldeia. (Inalterada)
  */
 async function fetchVillageData(villageId) {
     try {
@@ -155,7 +189,7 @@ async function fetchVillageData(villageId) {
 
 
 /**
- * Função auxiliar para enviar a requisição de construção.
+ * Função auxiliar para enviar a requisição de construção. (Inalterada)
  */
 async function sendBuildRequest(villageId, building, csrf_token) {
     const url = `/game.php?village=${villageId}&screen=main&action=upgrade_building&id=${building}&h=${csrf_token}`;
