@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      1.4-CSRF-Token-Fix
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com correção de token CSRF para múltiplas aldeias.
+// @version      1.5-Village-Getter-Fix-Attempt
+// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com tentativa de correção no método de obtenção de aldeias.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -17,11 +17,15 @@ async function runBuilderModule() {
         return;
     }
 
+    // --- INÍCIO DA CORREÇÃO ---
+    // Tentando usar o método .get() que é mais genérico.
     if (!window.KitsuneVillageManager) {
         console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível. O módulo coletor de aldeias pode não ter carregado corretamente.");
         return;
     }
-    const villages = await window.KitsuneVillageManager.getVillages();
+    // Tentativa de usar .get() em vez de .getVillages()
+    const villages = await window.KitsuneVillageManager.get();
+    // --- FIM DA CORREÇÃO ---
 
     if (!villages || villages.length === 0) {
         console.log("KITSUNE Construtor: Nenhuma aldeia encontrada pelo KitsuneVillageManager.");
@@ -47,7 +51,6 @@ async function processVillageConstruction(village, settings, config) {
     const villageData = await fetchVillageData(village.id);
     if (!villageData) return;
 
-    // MODIFICADO: Extrai o novo token csrf junto com os outros dados
     const { buildings, population, buildQueue, csrf } = villageData;
     const maxQueueSize = parseInt(settings.filas || 1, 10);
 
@@ -88,7 +91,6 @@ async function processVillageConstruction(village, settings, config) {
     }
 
     console.log(`KITSUNE Construtor: Próximo alvo em [${village.name}] é ${buildingToConstruct}.`);
-    // MODIFICADO: Passa o token específico da aldeia para a função de construção
     await sendBuildRequest(village.id, buildingToConstruct, csrf);
 }
 
@@ -108,7 +110,6 @@ async function fetchVillageData(villageId) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
 
-        // NOVO: Extrai o token CSRF (parâmetro 'h') da página da aldeia específica
         let csrf = null;
         const csrfMatch = text.match(/"csrf":"(\w+)"/);
         if(csrfMatch && csrfMatch[1]) {
@@ -149,7 +150,7 @@ async function fetchVillageData(villageId) {
             resources,
             population,
             buildQueue: Array.from(buildQueueNodes),
-            csrf // MODIFICADO: Retorna o token junto com os outros dados
+            csrf
         };
     } catch (error) {
         console.error(`KITSUNE Construtor: Falha crítica ao buscar dados da aldeia ${villageId}.`, error);
@@ -161,8 +162,7 @@ async function fetchVillageData(villageId) {
 /**
  * Função auxiliar para enviar a requisição de construção.
  */
-async function sendBuildRequest(villageId, building, csrf_token) { // MODIFICADO: Aceita o token como parâmetro
-    // MODIFICADO: Usa o token recebido em vez do 'game_data.csrf' global
+async function sendBuildRequest(villageId, building, csrf_token) {
     const url = `/game.php?village=${villageId}&screen=main&action=upgrade_building&id=${building}&h=${csrf_token}`;
     try {
         const response = await fetch(url, {
@@ -170,7 +170,7 @@ async function sendBuildRequest(villageId, building, csrf_token) { // MODIFICADO
         });
         if (response.ok) {
             console.log(`KITSUNE Construtor: Ordem de construção para ${building} em ${villageId} enviada com sucesso.`);
-            await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 500)); // Delay um pouco maior e randomizado
+            await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 500));
         } else {
             try {
                 const errorData = await response.json();
