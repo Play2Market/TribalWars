@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      1.3-Village-Source-Fix
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com fonte de aldeias corrigida.
+// @version      1.4-CSRF-Token-Fix
+// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com correção de token CSRF para múltiplas aldeias.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -17,15 +17,11 @@ async function runBuilderModule() {
         return;
     }
 
-    // --- INÍCIO DA CORREÇÃO ---
-    // A fonte de aldeias `game_data.player.villages` estava incorreta.
-    // Agora, usamos o KitsuneVillageManager para obter a lista correta de aldeias do jogador.
     if (!window.KitsuneVillageManager) {
         console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível. O módulo coletor de aldeias pode não ter carregado corretamente.");
         return;
     }
     const villages = await window.KitsuneVillageManager.getVillages();
-    // --- FIM DA CORREÇÃO ---
 
     if (!villages || villages.length === 0) {
         console.log("KITSUNE Construtor: Nenhuma aldeia encontrada pelo KitsuneVillageManager.");
@@ -51,7 +47,8 @@ async function processVillageConstruction(village, settings, config) {
     const villageData = await fetchVillageData(village.id);
     if (!villageData) return;
 
-    const { buildings, population, buildQueue } = villageData;
+    // MODIFICADO: Extrai o novo token csrf junto com os outros dados
+    const { buildings, population, buildQueue, csrf } = villageData;
     const maxQueueSize = parseInt(settings.filas || 1, 10);
 
     if (buildQueue.length >= maxQueueSize) {
@@ -91,7 +88,8 @@ async function processVillageConstruction(village, settings, config) {
     }
 
     console.log(`KITSUNE Construtor: Próximo alvo em [${village.name}] é ${buildingToConstruct}.`);
-    await sendBuildRequest(village.id, buildingToConstruct);
+    // MODIFICADO: Passa o token específico da aldeia para a função de construção
+    await sendBuildRequest(village.id, buildingToConstruct, csrf);
 }
 
 
@@ -109,6 +107,16 @@ async function fetchVillageData(villageId) {
         const text = await response.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
+
+        // NOVO: Extrai o token CSRF (parâmetro 'h') da página da aldeia específica
+        let csrf = null;
+        const csrfMatch = text.match(/"csrf":"(\w+)"/);
+        if(csrfMatch && csrfMatch[1]) {
+            csrf = csrfMatch[1];
+        } else {
+            console.error(`KITSUNE Construtor: Não foi possível encontrar o token CSRF para a aldeia ${villageId}.`);
+            return null;
+        }
 
         const buildingLevels = {};
         const scriptContent = text.match(/BuildingMain\.buildings = (\{.*?\});/);
@@ -140,7 +148,8 @@ async function fetchVillageData(villageId) {
             buildings: buildingLevels,
             resources,
             population,
-            buildQueue: Array.from(buildQueueNodes)
+            buildQueue: Array.from(buildQueueNodes),
+            csrf // MODIFICADO: Retorna o token junto com os outros dados
         };
     } catch (error) {
         console.error(`KITSUNE Construtor: Falha crítica ao buscar dados da aldeia ${villageId}.`, error);
@@ -152,15 +161,16 @@ async function fetchVillageData(villageId) {
 /**
  * Função auxiliar para enviar a requisição de construção.
  */
-async function sendBuildRequest(villageId, building) {
-    const url = `/game.php?village=${villageId}&screen=main&action=upgrade_building&id=${building}&h=${game_data.csrf}`;
+async function sendBuildRequest(villageId, building, csrf_token) { // MODIFICADO: Aceita o token como parâmetro
+    // MODIFICADO: Usa o token recebido em vez do 'game_data.csrf' global
+    const url = `/game.php?village=${villageId}&screen=main&action=upgrade_building&id=${building}&h=${csrf_token}`;
     try {
         const response = await fetch(url, {
             method: 'GET'
         });
         if (response.ok) {
             console.log(`KITSUNE Construtor: Ordem de construção para ${building} em ${villageId} enviada com sucesso.`);
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 500)); // Delay um pouco maior e randomizado
         } else {
             try {
                 const errorData = await response.json();
