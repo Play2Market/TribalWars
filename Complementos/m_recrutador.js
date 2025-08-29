@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Recrutador
-// @version      2.1-Stable-Recruitment
+// @version      2.2-CSRF-Fix
 // @description  Motor lógico para o módulo Recrutador do Projeto Kitsune, com lógica de envio e verificação de recursos.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
@@ -19,16 +19,13 @@ async function runRecruiterModule() {
         const targetTroops = { ...config };
         delete targetTroops.grupo;
 
-        // --- CORREÇÃO PRINCIPAL APLICADA AQUI ---
-        // A função getVillagesFromGroup agora retorna a lista de aldeias completa.
         const villages = window.kitsuneModalManager.getVillagesFromGroup(config.grupo);
 
         if (!villages || villages.length === 0) {
             console.warn(`Kitsune Recrutador: Nenhuma aldeia encontrada para o grupo ${config.grupo}. Verifique se as coordenadas no grupo personalizado estão corretas e se o coletor de aldeias está atualizado.`);
             continue;
         }
-        
-        // O loop agora itera sobre objetos de aldeia completos.
+
         for (const village of villages) {
             await checkAndRecruitForVillage(village, targetTroops, settings.recrutadorConfig);
         }
@@ -42,8 +39,15 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
 
-        // --- MELHORIA: Extrai o token CSRF específico da página da aldeia ---
-        const csrfToken = doc.querySelector('input[name="h"]')?.value;
+        // --- INÍCIO DA CORREÇÃO ---
+        // Altera o método de busca do token para ser mais confiável, lendo do bloco de dados do jogo.
+        let csrfToken = null;
+        const csrfMatch = text.match(/"csrf":"(\w+)"/);
+        if (csrfMatch && csrfMatch[1]) {
+            csrfToken = csrfMatch[1];
+        }
+        // --- FIM DA CORREÇÃO ---
+
         if (!csrfToken) {
             console.warn(`Kitsune Recrutador: Não foi possível encontrar o token de segurança para a aldeia ${village.name}.`);
             return;
@@ -57,7 +61,6 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
             currentTroops[unitName] = existingCount;
         });
 
-        // --- MELHORIA: Extrai os custos e população de cada unidade ---
         const unitData = {};
         doc.querySelectorAll('#train_form tr[data-unit]').forEach(row => {
             const unit = row.dataset.unit;
@@ -70,16 +73,18 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
             };
         });
 
-        // --- MELHORIA: Obtém recursos e população atuais da aldeia ---
+        const pageGameDataMatch = text.match(/TribalWars\.updateGameData\((.*?)\);/);
+        const pageGameData = JSON.parse(pageGameDataMatch[1]);
         const resources = {
-            wood: game_data.village.wood,
-            stone: game_data.village.stone,
-            iron: game_data.village.iron
+            wood: pageGameData.village.wood,
+            stone: pageGameData.village.stone,
+            iron: pageGameData.village.iron
         };
         const pop = {
-            current: game_data.village.pop,
-            max: game_data.village.pop_max
+            current: pageGameData.village.pop,
+            max: pageGameData.village.pop_max
         };
+
 
         const troopsToRecruit = {};
         let needsRecruiting = false;
@@ -93,24 +98,26 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
 
             const unitInfo = unitData[unit];
             if (!unitInfo || unitInfo.max === 0) continue;
-            
-            // --- MELHORIA: Lógica de lote e verificação de recursos/população ---
+
             const building = doc.querySelector(`#main_buildrow_${unitInfo.recruit_from || 'barracks'}`).id.includes('stable') ? 'stable' : (doc.querySelector(`#main_buildrow_${unitInfo.recruit_from || 'barracks'}`).id.includes('garage') ? 'garage' : 'barracks');
             const batchSize = parseInt(config[building]?.lote, 10) || 1;
-            
+
             let amountToRecruit = 0;
-            for (let i = 0; i < Math.floor(deficit / batchSize); i++) {
-                const nextBatchCost = { wood: unitInfo.wood * batchSize, stone: unitInfo.stone * batchSize, iron: unitInfo.iron * batchSize, pop: unitInfo.pop * batchSize };
-                if (resources.wood >= nextBatchCost.wood && resources.stone >= nextBatchCost.stone && resources.iron >= nextBatchCost.iron && (pop.current + nextBatchCost.pop) <= pop.max) {
-                    amountToRecruit += batchSize;
-                    resources.wood -= nextBatchCost.wood;
-                    resources.stone -= nextBatchCost.stone;
-                    resources.iron -= nextBatchCost.iron;
-                    pop.current += nextBatchCost.pop;
-                } else {
-                    break; // Para se não houver recursos/pop para o próximo lote
+            if (batchSize > 0) {
+                for (let i = 0; i < Math.floor(deficit / batchSize); i++) {
+                    const nextBatchCost = { wood: unitInfo.wood * batchSize, stone: unitInfo.stone * batchSize, iron: unitInfo.iron * batchSize, pop: unitInfo.pop * batchSize };
+                    if (resources.wood >= nextBatchCost.wood && resources.stone >= nextBatchCost.stone && resources.iron >= nextBatchCost.iron && (pop.current + nextBatchCost.pop) <= pop.max) {
+                        amountToRecruit += batchSize;
+                        resources.wood -= nextBatchCost.wood;
+                        resources.stone -= nextBatchCost.stone;
+                        resources.iron -= nextBatchCost.iron;
+                        pop.current += nextBatchCost.pop;
+                    } else {
+                        break;
+                    }
                 }
             }
+
 
             if (amountToRecruit > 0) {
                 troopsToRecruit[unit] = Math.min(amountToRecruit, unitInfo.max);
@@ -128,7 +135,6 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
     }
 }
 
-// --- MELHORIA: Função implementada para enviar o POST de recrutamento ---
 async function sendRecruitRequest(villageId, troops, csrfToken) {
     const url = `/game.php?village=${villageId}&screen=train&action=train&mode=mass&h=${csrfToken}`;
     const body = new URLSearchParams();
