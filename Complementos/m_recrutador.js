@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Recrutador
-// @version      2.2-CSRF-Fix
+// @version      2.3-Stable-CSRF-Fix
 // @description  Motor lógico para o módulo Recrutador do Projeto Kitsune, com lógica de envio e verificação de recursos.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
@@ -40,12 +40,9 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
         const doc = parser.parseFromString(text, 'text/html');
 
         // --- INÍCIO DA CORREÇÃO ---
-        // Altera o método de busca do token para ser mais confiável, lendo do bloco de dados do jogo.
-        let csrfToken = null;
-        const csrfMatch = text.match(/"csrf":"(\w+)"/);
-        if (csrfMatch && csrfMatch[1]) {
-            csrfToken = csrfMatch[1];
-        }
+        // Busca o token CSRF diretamente do input escondido no formulário de recrutamento.
+        // Este é o método mais confiável para esta página específica.
+        const csrfToken = doc.querySelector('#train_form input[name="h"]')?.value;
         // --- FIM DA CORREÇÃO ---
 
         if (!csrfToken) {
@@ -53,27 +50,12 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
             return;
         }
 
-        const currentTroops = {};
-        const troopRows = doc.querySelectorAll('#train_form tr[data-unit]');
-        troopRows.forEach(row => {
-            const unitName = row.dataset.unit;
-            const existingCount = parseInt(row.querySelector('.unit_existing_count')?.textContent.trim() || 0, 10);
-            currentTroops[unitName] = existingCount;
-        });
-
-        const unitData = {};
-        doc.querySelectorAll('#train_form tr[data-unit]').forEach(row => {
-            const unit = row.dataset.unit;
-            unitData[unit] = {
-                wood: parseInt(row.querySelector('.cost_wood')?.textContent || '0'),
-                stone: parseInt(row.querySelector('.cost_stone')?.textContent || '0'),
-                iron: parseInt(row.querySelector('.cost_iron')?.textContent || '0'),
-                pop: parseInt(row.querySelector('.cost_pop')?.textContent || '0'),
-                max: parseInt(row.querySelector('a.add-max')?.textContent.replace(/[()]/g, '') || '0')
-            };
-        });
-
+        // Extrai os dados da aldeia (recursos, população) do HTML buscado, não do game_data global.
         const pageGameDataMatch = text.match(/TribalWars\.updateGameData\((.*?)\);/);
+        if (!pageGameDataMatch || !pageGameDataMatch[1]) {
+            console.warn(`Kitsune Recrutador: Não foi possível encontrar os dados da aldeia ${village.name} na página de recrutamento.`);
+            return;
+        }
         const pageGameData = JSON.parse(pageGameDataMatch[1]);
         const resources = {
             wood: pageGameData.village.wood,
@@ -85,6 +67,26 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
             max: pageGameData.village.pop_max
         };
 
+        const currentTroops = {};
+        const troopRows = doc.querySelectorAll('#train_form tr[data-unit]');
+        troopRows.forEach(row => {
+            const unitName = row.dataset.unit;
+            const existingCount = parseInt(row.querySelector('.unit_existing_count')?.textContent.trim() || 0, 10);
+            currentTroops[unitName] = existingCount;
+        });
+
+        const unitData = {};
+        troopRows.forEach(row => {
+            const unit = row.dataset.unit;
+            unitData[unit] = {
+                wood: parseInt(row.querySelector('.cost_wood')?.textContent || '0'),
+                stone: parseInt(row.querySelector('.cost_stone')?.textContent || '0'),
+                iron: parseInt(row.querySelector('.cost_iron')?.textContent || '0'),
+                pop: parseInt(row.querySelector('.cost_pop')?.textContent || '0'),
+                max: parseInt(row.querySelector('a.add-max')?.textContent.replace(/[()]/g, '') || '0'),
+                recruit_from: row.closest('table').id.replace('_units', '') // barracks, stable or garage
+            };
+        });
 
         const troopsToRecruit = {};
         let needsRecruiting = false;
@@ -99,12 +101,13 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
             const unitInfo = unitData[unit];
             if (!unitInfo || unitInfo.max === 0) continue;
 
-            const building = doc.querySelector(`#main_buildrow_${unitInfo.recruit_from || 'barracks'}`).id.includes('stable') ? 'stable' : (doc.querySelector(`#main_buildrow_${unitInfo.recruit_from || 'barracks'}`).id.includes('garage') ? 'garage' : 'barracks');
+            const building = unitInfo.recruit_from;
             const batchSize = parseInt(config[building]?.lote, 10) || 1;
 
             let amountToRecruit = 0;
             if (batchSize > 0) {
-                for (let i = 0; i < Math.floor(deficit / batchSize); i++) {
+                const batchesPossible = Math.floor(deficit / batchSize);
+                for (let i = 0; i < batchesPossible; i++) {
                     const nextBatchCost = { wood: unitInfo.wood * batchSize, stone: unitInfo.stone * batchSize, iron: unitInfo.iron * batchSize, pop: unitInfo.pop * batchSize };
                     if (resources.wood >= nextBatchCost.wood && resources.stone >= nextBatchCost.stone && resources.iron >= nextBatchCost.iron && (pop.current + nextBatchCost.pop) <= pop.max) {
                         amountToRecruit += batchSize;
@@ -117,7 +120,6 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
                     }
                 }
             }
-
 
             if (amountToRecruit > 0) {
                 troopsToRecruit[unit] = Math.min(amountToRecruit, unitInfo.max);
