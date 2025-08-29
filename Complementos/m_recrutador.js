@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Projeto Kitsune | Módulo de Lógica - Recrutador
-// @version      2.3-Stable-CSRF-Fix
-// @description  Motor lógico para o módulo Recrutador do Projeto Kitsune, com lógica de envio e verificação de recursos.
+// @version      3.0-Final-Logic
+// @description  Motor lógico para o módulo Recrutador do Projeto Kitsune, com lógica de envio, verificação de recursos e respeito às filas e lotes.
 // @author       Triky, Gemini & Cia
 // ==/UserScript==
 
@@ -39,18 +39,13 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(text, 'text/html');
 
-        // --- INÍCIO DA CORREÇÃO ---
-        // Busca o token CSRF diretamente do input escondido no formulário de recrutamento.
-        // Este é o método mais confiável para esta página específica.
         const csrfToken = doc.querySelector('#train_form input[name="h"]')?.value;
-        // --- FIM DA CORREÇÃO ---
 
         if (!csrfToken) {
             console.warn(`Kitsune Recrutador: Não foi possível encontrar o token de segurança para a aldeia ${village.name}.`);
             return;
         }
 
-        // Extrai os dados da aldeia (recursos, população) do HTML buscado, não do game_data global.
         const pageGameDataMatch = text.match(/TribalWars\.updateGameData\((.*?)\);/);
         if (!pageGameDataMatch || !pageGameDataMatch[1]) {
             console.warn(`Kitsune Recrutador: Não foi possível encontrar os dados da aldeia ${village.name} na página de recrutamento.`);
@@ -84,7 +79,7 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
                 iron: parseInt(row.querySelector('.cost_iron')?.textContent || '0'),
                 pop: parseInt(row.querySelector('.cost_pop')?.textContent || '0'),
                 max: parseInt(row.querySelector('a.add-max')?.textContent.replace(/[()]/g, '') || '0'),
-                recruit_from: row.closest('table').id.replace('_units', '') // barracks, stable or garage
+                recruit_from: row.closest('table').id.replace('_units', '')
             };
         });
 
@@ -100,23 +95,27 @@ async function checkAndRecruitForVillage(village, targetTroops, config) {
 
             const unitInfo = unitData[unit];
             if (!unitInfo || unitInfo.max === 0) continue;
-
+            
+            // --- LÓGICA DE LOTE E FILA APRIMORADA ---
             const building = unitInfo.recruit_from;
             const batchSize = parseInt(config[building]?.lote, 10) || 1;
+            const maxQueues = parseInt(config[building]?.filas, 10) || 1;
 
             let amountToRecruit = 0;
             if (batchSize > 0) {
-                const batchesPossible = Math.floor(deficit / batchSize);
-                for (let i = 0; i < batchesPossible; i++) {
-                    const nextBatchCost = { wood: unitInfo.wood * batchSize, stone: unitInfo.stone * batchSize, iron: unitInfo.iron * batchSize, pop: unitInfo.pop * batchSize };
-                    if (resources.wood >= nextBatchCost.wood && resources.stone >= nextBatchCost.stone && resources.iron >= nextBatchCost.iron && (pop.current + nextBatchCost.pop) <= pop.max) {
+                const batchesNeeded = Math.floor(deficit / batchSize);
+                const batchesToQueue = Math.min(batchesNeeded, maxQueues);
+
+                for (let i = 0; i < batchesToQueue; i++) {
+                    const batchCost = { wood: unitInfo.wood * batchSize, stone: unitInfo.stone * batchSize, iron: unitInfo.iron * batchSize, pop: unitInfo.pop * batchSize };
+                    if (resources.wood >= batchCost.wood && resources.stone >= batchCost.stone && resources.iron >= batchCost.iron && (pop.current + batchCost.pop) <= pop.max) {
                         amountToRecruit += batchSize;
-                        resources.wood -= nextBatchCost.wood;
-                        resources.stone -= nextBatchCost.stone;
-                        resources.iron -= nextBatchCost.iron;
-                        pop.current += nextBatchCost.pop;
+                        resources.wood -= batchCost.wood;
+                        resources.stone -= batchCost.stone;
+                        resources.iron -= batchCost.iron;
+                        pop.current += batchCost.pop;
                     } else {
-                        break;
+                        break; // Para se não houver recursos/pop para o próximo lote
                     }
                 }
             }
@@ -145,6 +144,18 @@ async function sendRecruitRequest(villageId, troops, csrfToken) {
             body.append(unit, troops[unit]);
         }
     }
+    // Adiciona as outras unidades com 0 para garantir que o formulário seja enviado corretamente
+    body.append('spear', troops['spear'] || 0);
+    body.append('sword', troops['sword'] || 0);
+    body.append('axe', troops['axe'] || 0);
+    body.append('archer', troops['archer'] || 0);
+    body.append('spy', troops['spy'] || 0);
+    body.append('light', troops['light'] || 0);
+    body.append('marcher', troops['marcher'] || 0);
+    body.append('heavy', troops['heavy'] || 0);
+    body.append('ram', troops['ram'] || 0);
+    body.append('catapult', troops['catapult'] || 0);
+
 
     try {
         const response = await fetch(url, {
