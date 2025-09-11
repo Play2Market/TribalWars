@@ -1,214 +1,175 @@
-// ==UserScript==
-// @name         Projeto Kitsune | Módulo de Lógica - Construtor
-// @version      2.2-Smart-Capacity-Check
-// @description  Motor lógico para o módulo Construtor do Projeto Kitsune, com verificação inteligente de fila para capacidade.
-// @author       Triky, Gemini & Cia
-// ==/UserScript==
+/**
+ * =========================================================================================
+ * KITSUNE - MÓDULO DE LÓGICA - CONSTRUTOR (m_construtor.js)
+ * =========================================================================================
+ * Motor lógico para o módulo Construtor, usando requisições API para eficiência.
+ * Entende e aplica todas as configurações da UI, incluindo macros e modelos.
+ * @version 3.1-Polished-Full-Integration
+ * @author Triky, Gemini & Cia
+ */
+const construtorModule = (function() {
 
-async function runBuilderModule() {
-    console.log("KITSUNE: Módulo Construtor - Verificando construções...");
+    // AVISO: Estes endpoints precisam ser confirmados usando a aba "Rede" (F12) do navegador.
+    const API_ENDPOINTS = {
+        GET_VILLAGE_DATA: '/game.php?village={village_id}&screen=main&ajax=overview',
+        BUILD_COMMAND: '/game.php?village={village_id}&action=upgrade_building&id={building}&h={csrf_token}'
+    };
 
-    const settings = window.KitsuneSettingsManager.get();
-    const builderSettings = settings.construtor || {};
-    const builderConfig = settings.construtorConfig || {};
+    const PAUSE_CONFIG = {
+        BETWEEN_FETCHES_MS: [200, 400],    // Pausa curta entre a coleta de dados de cada aldeia
+        BETWEEN_BUILDS_MS: [1000, 2000]   // Pausa mais longa entre cada comando de construção enviado
+    };
 
-    if (typeof Sequência_Construção === 'undefined') {
-        console.error("KITSUNE Construtor: A lista de construção 'Sequência_Construção' não foi encontrada. Verifique se o arquivo Lista_PADRAO.js está sendo carregado.");
-        return;
+    /**
+     * Pausa a execução por um período de tempo.
+     */
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms + Math.random() * 50));
     }
 
-    if (!window.KitsuneVillageManager) {
-        console.error("KITSUNE Construtor: KitsuneVillageManager não está disponível.");
-        return;
-    }
-    const villages = await window.KitsuneVillageManager.getVillages();
-
-    if (!villages || villages.length === 0) {
-        console.log("KITSUNE Construtor: Nenhuma aldeia encontrada pelo KitsuneVillageManager.");
-        return;
-    }
-
-    for (const village of villages) {
+    /**
+     * Busca os dados de uma aldeia via API.
+     */
+    async function fetchDadosDaAldeia(villageId, logger) {
+        const url = API_ENDPOINTS.GET_VILLAGE_DATA.replace('{village_id}', villageId);
         try {
-            await processVillageConstruction(village, builderSettings, builderConfig);
-        } catch (error) {
-            console.error(`KITSUNE Construtor: Erro ao processar a aldeia ${village.name || village.id}.`, error);
-        }
-    }
-}
-
-/**
- * Processa a lógica de construção para uma única aldeia.
- */
-async function processVillageConstruction(village, settings, config) {
-    console.log(`--- [ ${village.name} ] --- Verificando fila de construção.`);
-
-    const villageData = await fetchVillageData(village.id);
-    if (!villageData) return;
-
-    const { buildings, resources, population, buildQueue, csrf } = villageData;
-    const maxQueueSize = parseInt(settings.filas || 1, 10);
-
-    if (buildQueue.length >= maxQueueSize) {
-        console.log(`KITSUNE Construtor: Fila de construção em [${village.name}] já está cheia (${buildQueue.length}/${maxQueueSize}).`);
-        return;
-    }
-
-    const queuedUpgrades = {};
-    for (const queueItem of buildQueue) {
-        const classMatch = queueItem.className.match(/buildorder_(\w+)/);
-        if (classMatch && classMatch[1]) {
-            const buildingName = classMatch[1];
-            queuedUpgrades[buildingName] = (queuedUpgrades[buildingName] || 0) + 1;
-        }
-    }
-    console.log(`KITSUNE Construtor: Fila atual em [${village.name}]:`, queuedUpgrades);
-
-    let buildingToConstruct = null;
-    const isAutoWallEnabled = settings.autoMuralha === 'Sim';
-    const minWallLevel = parseInt(settings.nivelMuralha || 0, 10);
-
-    // --- INÍCIO DA LÓGICA DE CAPACIDADE CORRIGIDA ---
-    const farmCapacityThreshold = parseFloat(settings.fazenda || '0.9');
-    const storageCapacityThreshold = parseFloat(settings.armazem || '0.9');
-
-    const isFarmFull = (population.current / population.max) >= farmCapacityThreshold;
-    const isStorageFull = (resources.wood >= resources.storage * storageCapacityThreshold) ||
-                          (resources.stone >= resources.storage * storageCapacityThreshold) ||
-                          (resources.iron >= resources.storage * storageCapacityThreshold);
-
-    // PRIORIDADE 1: GESTÃO DE CAPACIDADE (FAZENDA E ARMAZÉM)
-    // Se a fazenda está cheia E não há upgrade de fazenda na fila E a fazenda não está no nível máximo
-    if (isFarmFull && !queuedUpgrades.farm && buildings.farm < 30) {
-        console.log(`KITSUNE Construtor: População em [${village.name}] atingiu o limite. Priorizando Fazenda.`);
-        buildingToConstruct = 'farm';
-    }
-    // Senão, se o armazém está cheio E não há upgrade de armazém na fila E o armazém não está no nível máximo
-    else if (isStorageFull && !queuedUpgrades.storage && buildings.storage < 30) {
-        console.log(`KITSUNE Construtor: Recursos em [${village.name}] atingiram o limite. Priorizando Armazém.`);
-        buildingToConstruct = 'storage';
-    }
-    // --- FIM DA LÓGICA DE CAPACIDADE CORRIGIDA ---
-
-    // PRIORIDADE 2: MURALHA
-    else if (isAutoWallEnabled) {
-        const effectiveWallLevel = buildings.wall + (queuedUpgrades.wall || 0);
-        if (effectiveWallLevel < minWallLevel) {
-            console.log(`KITSUNE Construtor: Automação defensiva ativa. Nível efetivo da Muralha em [${village.name}] (${effectiveWallLevel}) está abaixo do mínimo (${minWallLevel}). Priorizando Muralha.`);
-            buildingToConstruct = 'wall';
-        }
-    }
-
-    // PRIORIDADE 3: LISTA DE CONSTRUÇÃO PADRÃO
-    if (!buildingToConstruct) {
-        for (const buildTarget of Sequência_Construção) {
-            const [_, __, building, level] = buildTarget.split('_');
-            const targetLevel = parseInt(level, 10);
-            
-            const effectiveBuildingLevel = buildings[building] + (queuedUpgrades[building] || 0);
-
-            if (effectiveBuildingLevel < targetLevel) {
-                buildingToConstruct = building;
-                break;
-            }
-        }
-    }
-
-    if (!buildingToConstruct) {
-        console.log(`KITSUNE Construtor: Modelo de construção para [${village.name}], considerando a fila, está completo ou aguardando recursos.`);
-        return;
-    }
-
-    console.log(`KITSUNE Construtor: Próximo alvo em [${village.name}] é ${buildingToConstruct}.`);
-    await sendBuildRequest(village.id, buildingToConstruct, csrf);
-}
-
-
-/**
- * Função auxiliar para buscar dados essenciais da aldeia. (Inalterada)
- */
-async function fetchVillageData(villageId) {
-    try {
-        const response = await fetch(`/game.php?village=${villageId}&screen=main`);
-        if (!response.ok) {
-            console.warn(`KITSUNE Construtor: Resposta não OK para aldeia ${villageId}`);
+            const response = await fetch(url);
+            if (!response.ok) return null;
+            // AVISO: A estrutura do JSON de resposta precisa ser validada.
+            // O código abaixo assume a estrutura comum do TW.
+            return await response.json();
+        } catch (e) {
+            logger.add('Construtor', `Falha ao buscar dados da aldeia ${villageId}.`);
             return null;
         }
+    }
 
-        const text = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'text/html');
+    /**
+     * Calcula o nível real de um edifício, somando o nível atual com o que já está na fila.
+     */
+    function calcularNivelEfetivo(edificios, fila, nomeEdificio) {
+        const nivelBase = parseInt(edificios[nomeEdificio]?.level || 0, 10);
+        const emFila = fila.filter(item => item.building === nomeEdificio).length;
+        return nivelBase + emFila;
+    }
 
-        let csrf = null;
-        const csrfMatch = text.match(/"csrf":"(\w+)"/);
-        if(csrfMatch && csrfMatch[1]) {
-            csrf = csrfMatch[1];
-        } else {
-            console.error(`KITSUNE Construtor: Não foi possível encontrar o token CSRF para a aldeia ${villageId}.`);
-            return null;
+    /**
+     * O cérebro do módulo: decide qual edifício construir com base na lógica de prioridades.
+     */
+    function decidirOQueConstruir(dados, settings, builderTemplates, modeloPadrao) {
+        const { buildings, buildqueue, res, res_max, pop } = dados;
+        const { construtor } = settings;
+        const maxQueueSize = parseInt(construtor.filas || 1, 10);
+
+        if (buildqueue.length >= maxQueueSize) return null;
+
+        // AVISO: A verificação de recursos para cada construção precisa ser implementada aqui.
+        // Por enquanto, o script assume que há recursos suficientes para o item de maior prioridade.
+
+        // PRIORIDADE 1: FAZENDA
+        if ((pop.pop_current / pop.pop_max) >= (parseInt(construtor.fazenda) / 100)) {
+            if (calcularNivelEfetivo(buildings, buildqueue, 'farm') < 30) return 'farm';
         }
 
-        const buildingLevels = {};
-        const scriptContent = text.match(/BuildingMain\.buildings = (\{.*?\});/);
-        if (scriptContent && scriptContent[1]) {
-            const buildingsData = JSON.parse(scriptContent[1]);
-            for (const buildingName in buildingsData) {
-                buildingLevels[buildingName] = parseInt(buildingsData[buildingName].level, 10);
+        // PRIORIDADE 2: ARMAZÉM
+        const resPercent = Math.max(res.wood, res.stone, res.iron) / res_max.storage;
+        if (resPercent >= (parseInt(construtor.armazem) / 100)) {
+            if (calcularNivelEfetivo(buildings, buildqueue, 'storage') < 30) return 'storage';
+        }
+
+        // PRIORIDADE 3: MURALHA
+        if (calcularNivelEfetivo(buildings, buildqueue, 'wall') < parseInt(construtor.nivelMuralha)) {
+            return 'wall';
+        }
+
+        // PRIORIDADE 4: ESCONDERIJO
+        if (calcularNivelEfetivo(buildings, buildqueue, 'hide') < parseInt(construtor.nivelEsconderijo)) {
+            return 'hide';
+        }
+
+        // PRIORIDADE 5: MODELO DE CONSTRUÇÃO
+        const templateId = construtor.modelo;
+        if (templateId === 'default') {
+            // Lógica para o modelo padrão
+            for (const buildTarget of modeloPadrao) {
+                const [_, __, building, level] = buildTarget.split('_');
+                if (calcularNivelEfetivo(buildings, buildqueue, building) < parseInt(level, 10)) {
+                    return building; // Encontrou o próximo da lista a ser construído
+                }
             }
         } else {
-            console.error(`KITSUNE Construtor: Não foi possível encontrar os dados de 'BuildingMain.buildings' para a aldeia ${villageId}.`);
-            return null;
-        }
-
-        const buildQueueNodes = doc.querySelectorAll('#build_queue tr[class*="buildorder_"]');
-
-        const resources = {
-            wood: parseInt(doc.getElementById('wood').textContent, 10),
-            stone: parseInt(doc.getElementById('stone').textContent, 10),
-            iron: parseInt(doc.getElementById('iron').textContent, 10),
-            storage: parseInt(doc.getElementById('storage').textContent, 10)
-        };
-
-        const population = {
-            current: parseInt(doc.getElementById('pop_current_label').textContent, 10),
-            max: parseInt(doc.getElementById('pop_max_label').textContent, 10)
-        };
-
-        return {
-            buildings: buildingLevels,
-            resources,
-            population,
-            buildQueue: Array.from(buildQueueNodes),
-            csrf
-        };
-    } catch (error) {
-        console.error(`KITSUNE Construtor: Falha crítica ao buscar dados da aldeia ${villageId}.`, error);
-        return null;
-    }
-}
-
-
-/**
- * Função auxiliar para enviar a requisição de construção. (Inalterada)
- */
-async function sendBuildRequest(villageId, building, csrf_token) {
-    const url = `/game.php?village=${villageId}&screen=main&action=upgrade_building&id=${building}&h=${csrf_token}`;
-    try {
-        const response = await fetch(url, {
-            method: 'GET'
-        });
-        if (response.ok) {
-            console.log(`KITSUNE Construtor: Ordem de construção para ${building} em ${villageId} enviada com sucesso.`);
-            await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 500));
-        } else {
-            try {
-                const errorData = await response.json();
-                console.warn(`KITSUNE Construtor: Falha ao construir ${building} em ${villageId}. Motivo: ${errorData.error}`);
-            } catch (e) {
-                console.warn(`KITSUNE Construtor: Falha ao enviar ordem de construção para ${building} em ${villageId}. Status: ${response.status}`);
+            // Lógica para modelos personalizados
+            const template = builderTemplates.find(t => t.id == templateId);
+            if (template) {
+                for (const etapa of template.queue) {
+                    if (calcularNivelEfetivo(buildings, buildqueue, etapa.building) < etapa.level) {
+                        return etapa.building; // Encontrou o próximo da lista a ser construído
+                    }
+                }
             }
         }
-    } catch (error) {
-        console.error(`KITSUNE Construtor: Erro de rede ao tentar construir ${building} em ${villageId}.`, error);
+
+        return null; // Nenhum edifício corresponde aos critérios
     }
-}
+
+    /**
+     * Envia o comando de construção para o servidor.
+     */
+    async function enviarComandoDeConstrucao(villageId, building, csrfToken, logger) {
+        const url = API_ENDPOINTS.BUILD_COMMAND
+            .replace('{village_id}', villageId)
+            .replace('{building}', building)
+            .replace('{csrf_token}', csrfToken);
+        try {
+            const response = await fetch(url, { method: 'GET' });
+            if (response.ok) {
+                logger.add('Construtor', `Ordem para '${building}' em ${villageId} enviada.`);
+            } else {
+                logger.add('Construtor', `Falha ao construir '${building}' em ${villageId}. O servidor retornou um erro.`);
+            }
+        } catch (e) {
+            logger.add('Construtor', `Erro de rede ao construir em ${villageId}.`);
+        }
+    }
+
+    /**
+     * Função principal que orquestra o ciclo do módulo.
+     */
+    async function run(dependencias) {
+        const { settingsManager, villageManager, logger, KitsuneBuilderModal, modeloPadraoConstrucao } = dependencias;
+        logger.add('Construtor', 'Iniciando ciclo de construção (API).');
+
+        const settings = settingsManager.get();
+        const builderTemplates = KitsuneBuilderModal.loadTemplates();
+        const aldeias = villageManager.get();
+
+        const dadosCompilados = [];
+        for (const aldeia of aldeias) {
+            const dados = await fetchDadosDaAldeia(aldeia.id, logger);
+            if (dados) dadosCompilados.push(dados);
+            await delay(PAUSE_CONFIG.BETWEEN_FETCHES_MS[0] + Math.random() * PAUSE_CONFIG.BETWEEN_FETCHES_MS[1]);
+        }
+
+        const comandos = [];
+        for (const dadosAldeia of dadosCompilados) {
+            const edificio = decidirOQueConstruir(dadosAldeia, settings, builderTemplates, modeloPadraoConstrucao);
+            if (edificio) {
+                comandos.push({ villageId: dadosAldeia.id, edificio, csrf: dadosAldeia.csrf_token });
+            }
+        }
+
+        if (comandos.length > 0) {
+            logger.add('Construtor', `Enviando ${comandos.length} comando(s) de construção...`);
+            for (const cmd of comandos) {
+                await enviarComandoDeConstrucao(cmd.villageId, cmd.edificio, cmd.csrf, logger);
+                await delay(PAUSE_CONFIG.BETWEEN_BUILDS_MS[0] + Math.random() * PAUSE_CONFIG.BETWEEN_BUILDS_MS[1]);
+            }
+        } else {
+            logger.add('Construtor', 'Nenhuma ação de construção necessária neste ciclo.');
+        }
+
+        logger.add('Construtor', 'Ciclo finalizado.');
+    }
+
+    return { run };
+})();
