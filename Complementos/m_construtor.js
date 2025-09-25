@@ -1,149 +1,159 @@
 // =========================================================================================
-// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.6 ---
+// --- Módulo Construtor Automático para Aba "Construtor" v2.0 ---
 // =========================================================================================
 (function() {
     'use strict';
 
-    if (window.construtorModule) { return; }
+    if (window.construtorModuleAuto) return;
+    console.log("💡 Construtor Automático carregado...");
 
-    console.log(" Módulo de Lógica do Construtor está sendo carregado...");
-
-    const construtorModule = {
+    const construtorModuleAuto = {
         dependencias: {},
 
-        async run(dependencias) {
+        init(dependencias) {
             this.dependencias = dependencias;
+
+            // Só roda se estivermos na aba Construtor
+            if (!window.location.href.includes('screen=main')) {
+                console.log("Construtor Automático: não estamos na aba principal. Abortando.");
+                return;
+            }
+
+            const settings = dependencias.settingsManager.get();
+            if (!settings.construtor.autoStart) {
+                console.log("Construtor Automático: autoStart desativado.");
+                return;
+            }
+
+            this.run();
+        },
+
+        async run() {
             const { settingsManager, logger, villageManager, KitsuneBuilderModal, modeloPadraoConstrucao, gameData } = this.dependencias;
             const settings = settingsManager.get();
             const construtorSettings = settings.construtor;
 
-            logger.add('Construtor', 'Módulo iniciado.');
+            logger?.add?.('Construtor', 'Iniciando ciclo automático de construção...');
 
-            const modeloId = construtorSettings.modelo;
+            // --- Determina o modelo ---
             let filaDeConstrucao;
+            const modeloId = construtorSettings.modelo;
 
             if (modeloId === 'default' || !modeloId) {
-                filaDeConstrucao = modeloPadraoConstrucao;
-                logger.add('Construtor', 'Usando modelo de construção Padrão.');
+                filaDeConstrucao = modeloPadraoConstrucao || [];
+                logger?.add?.('Construtor', 'Usando modelo padrão.');
             } else {
-                const templates = KitsuneBuilderModal.loadTemplates();
+                const templates = KitsuneBuilderModal?.loadTemplates?.() || [];
                 const templateSelecionado = templates.find(t => t.id == modeloId);
-                if (templateSelecionado) {
-                    filaDeConstrucao = templateSelecionado.queue.map(item => `main_buildlink_${item.building}_${item.level}`);
-                    logger.add('Construtor', `Usando modelo personalizado: ${templateSelecionado.name}.`);
-                } else {
-                    logger.add('Construtor', 'Modelo personalizado não encontrado. Usando Padrão.');
-                    filaDeConstrucao = modeloPadraoConstrucao;
-                }
+                filaDeConstrucao = templateSelecionado ? 
+                    templateSelecionado.queue.map(i => `main_buildlink_${i.building}_${i.level}`) :
+                    modeloPadraoConstrucao || [];
+                logger?.add?.('Construtor', templateSelecionado ? 
+                    `Usando modelo personalizado: ${templateSelecionado.name}` : 
+                    'Modelo personalizado não encontrado, usando padrão.');
             }
 
-            const todasAldeias = villageManager.getVillages();
-            if (!todasAldeias || todasAldeias.length === 0) {
-                logger.add('Construtor', 'Nenhuma aldeia encontrada para processar.');
+            // --- Percorre aldeias ---
+            const todasAldeias = villageManager.getVillages?.() || [];
+            if (!todasAldeias.length) {
+                logger?.add?.('Construtor', 'Nenhuma aldeia encontrada.');
                 return;
             }
 
             for (const aldeia of todasAldeias) {
                 try {
-                    const estadoAldeia = await this.obterEstadoDaAldeia(aldeia.id);
-
-                    if (estadoAldeia.filaConstrucao.length >= estadoAldeia.maxFilas) {
-                        logger.add('Construtor', `Aldeia ${aldeia.name}: Fila de construção cheia.`);
+                    const estado = await this.obterEstadoDaAldeia(aldeia.id);
+                    if (estado.filaConstrucao.length >= estado.maxFilas) {
+                        logger?.add?.('Construtor', `Aldeia ${aldeia.name}: fila cheia.`);
                         continue;
                     }
 
-                    const proximoItem = this.encontrarProximoItemParaConstruir(filaDeConstrucao, estadoAldeia.niveisEdificios);
-
-                    if (proximoItem) {
-                        const { edificio, nivel } = proximoItem;
-                        logger.add('Construtor', `Aldeia ${aldeia.name}: Tentando construir ${edificio} nível ${nivel}.`);
-
-                        // A função agora não precisa mais de "await" pois é "dispare e esqueça".
-                        this.construirEdificio(aldeia.id, edificio, gameData.csrf);
-                        // Como não podemos confirmar 100% o sucesso, assumimos que funcionou e logamos.
-                        logger.add('Construtor', `Aldeia ${aldeia.name}: Ordem de construção para ${edificio} nível ${nivel} enviada com sucesso.`);
-                        
-                    } else {
-                        logger.add('Construtor', `Aldeia ${aldeia.name}: Modelo de construção concluído ou nenhum item disponível.`);
+                    const proximo = this.encontrarProximoItem(filaDeConstrucao, estado.niveisEdificios);
+                    if (!proximo) {
+                        logger?.add?.('Construtor', `Aldeia ${aldeia.name}: nada a construir.`);
+                        continue;
                     }
-                } catch (error) {
-                    console.error(`Erro ao processar a aldeia ${aldeia.name}:`, error);
-                    logger.add('Construtor', `Erro crítico ao processar aldeia ${aldeia.name}.`);
+
+                    logger?.add?.('Construtor', `Aldeia ${aldeia.name}: construindo ${proximo.edificio} nível ${proximo.nivel}...`);
+                    this.construirEdificio(aldeia.id, proximo.edificio, gameData.csrf);
+
+                } catch (err) {
+                    console.error(`Erro aldeia ${aldeia.name}:`, err);
+                    logger?.add?.('Construtor', `Erro crítico na aldeia ${aldeia.name}`);
                 }
             }
-            logger.add('Construtor', 'Ciclo finalizado.');
+
+            logger?.add?.('Construtor', 'Ciclo de construção finalizado.');
         },
 
         async obterEstadoDaAldeia(aldeiaId) {
             const url = `/game.php?village=${aldeiaId}&screen=main`;
-            const response = await fetch(url);
-            const text = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/html');
+            const res = await fetch(url);
+            const html = await res.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
 
-            const niveisEdificios = {};
+            // --- Níveis ---
+            const niveis = {};
             doc.querySelectorAll('[data-building]').forEach(el => {
-                const edificio = el.dataset.building;
-                const nivelEl = el.querySelector('.level');
-                const nivel = nivelEl ? parseInt(nivelEl.innerText.trim(), 10) : 0;
-                if (!isNaN(nivel)) { niveisEdificios[edificio] = nivel; }
+                const id = el.dataset.building;
+                const lvlEl = el.querySelector('.level');
+                niveis[id] = lvlEl ? parseInt(lvlEl.innerText.trim(), 10) : 0;
             });
-            if (!niveisEdificios.snob) niveisEdificios.snob = 0;
-            if (!niveisEdificios.stable) niveisEdificios.stable = 0;
-            if (!niveisEdificios.garage) niveisEdificios.garage = 0;
+            ['snob','stable','garage'].forEach(b => { if (!niveis[b]) niveis[b] = 0; });
 
-            const filaConstrucao = Array.from(doc.querySelectorAll('#build_queue tr.build_queue_item')).map(row => row.querySelector('td:first-child').innerText.trim());
-            
-            let maxFilas = 2; 
-            const maxFilasElement = doc.querySelector('#build_queue_max_size');
-            if (maxFilasElement) {
-                maxFilas = maxFilasElement.textContent.includes('5') ? 5 : 2;
-            }
+            // --- Fila ---
+            const fila = Array.from(doc.querySelectorAll('#build_queue tr.build_queue_item'))
+                .map(r => r.querySelector('td:first-child').innerText.trim());
 
-            return { niveisEdificios, filaConstrucao, maxFilas };
+            // --- Máximo de filas ---
+            let maxFilas = 2;
+            const elMax = doc.querySelector('#build_queue_max_size');
+            if (elMax) maxFilas = elMax.textContent.includes('5') ? 5 : 2;
+
+            return { niveisEdificios: niveis, filaConstrucao: fila, maxFilas };
         },
-        
-        encontrarProximoItemParaConstruir(filaDeConstrucao, niveisAtuais) {
-            for (const item of filaDeConstrucao) {
-                const partes = item.split('_');
-                const edificio = partes[2];
-                const nivelAlvo = parseInt(partes[3], 10);
-                const nivelAtual = niveisAtuais[edificio] || 0;
 
-                if (nivelAtual < nivelAlvo) {
-                    return { edificio: edificio, nivel: nivelAtual + 1 };
-                }
+        encontrarProximoItem(fila, niveis) {
+            for (const item of fila) {
+                const p = item.split('_');
+                const edificio = p[2];
+                const alvo = parseInt(p[3],10);
+                const atual = niveis[edificio] || 0;
+                if (atual < alvo) return { edificio, nivel: atual+1 };
             }
             return null;
         },
 
-        /**
-         * Envia a requisição de construção através de um iframe invisível para não recarregar a página.
-         * ESTA É A FUNÇÃO QUE FOI CORRIGIDA.
-         */
-        construirEdificio(aldeiaId, edificio, csrfToken) {
-            const url = `/game.php?village=${aldeiaId}&screen=main&action=build&id=${edificio}&h=${csrfToken}`;
-            
+        construirEdificio(aldeiaId, edificio, csrf) {
+            const url = `/game.php?village=${aldeiaId}&screen=main&action=build&id=${edificio}&h=${csrf}`;
+
             try {
-                // Cria o iframe "mensageiro"
                 const iframe = document.createElement('iframe');
-                iframe.style.display = 'none'; // Fica invisível
+                iframe.style.display = 'none';
                 iframe.src = url;
-
-                // Adiciona o iframe à página para que ele seja carregado
                 document.body.appendChild(iframe);
-
-                // Limpa o iframe da página após alguns segundos para não acumular lixo.
-                setTimeout(() => {
-                    iframe.remove();
-                }, 5000); // 5 segundos
-
-            } catch (error) {
-                console.error("Erro ao criar iframe de construção:", error);
+                setTimeout(() => iframe.remove(), 5000);
+            } catch (err) {
+                console.error("Erro ao criar iframe de construção:", err);
             }
         }
     };
 
-    window.construtorModule = construtorModule;
+    window.construtorModuleAuto = construtorModuleAuto;
 
+    // --- Inicializa se aba Construtor ---
+    window.addEventListener('load', () => {
+        window.construtorModuleAuto.init({
+            settingsManager: window.KitsuneSettingsManager,
+            logger: window.KitsuneLogger || { add: console.log },
+            villageManager: window.KitsuneVillageManager,
+            KitsuneBuilderModal: window.KitsuneBuilderModal,
+            modeloPadraoConstrucao: [
+                "main_buildlink_farm_1",
+                "main_buildlink_storage_1",
+                "main_buildlink_barracks_1"
+            ],
+            gameData: window.game_data
+        });
+    });
 })();
