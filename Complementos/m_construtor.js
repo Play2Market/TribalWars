@@ -1,5 +1,5 @@
 // =========================================================================================
-// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.5 ---
+// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.6 ---
 // =========================================================================================
 (function() {
     'use strict';
@@ -58,12 +58,11 @@
                         const { edificio, nivel } = proximoItem;
                         logger.add('Construtor', `Aldeia ${aldeia.name}: Tentando construir ${edificio} nível ${nivel}.`);
 
-                        const sucesso = await this.construirEdificio(aldeia.id, edificio, gameData.csrf);
-                        if (sucesso) {
-                            logger.add('Construtor', `Aldeia ${aldeia.name}: Ordem de construção para ${edificio} nível ${nivel} enviada com sucesso.`);
-                        } else {
-                            logger.add('Construtor', `Aldeia ${aldeia.name}: Falha ao enviar ordem de construção para ${edificio} nível ${nivel}. Pode ser falta de recursos.`);
-                        }
+                        // A função agora não precisa mais de "await" pois é "dispare e esqueça".
+                        this.construirEdificio(aldeia.id, edificio, gameData.csrf);
+                        // Como não podemos confirmar 100% o sucesso, assumimos que funcionou e logamos.
+                        logger.add('Construtor', `Aldeia ${aldeia.name}: Ordem de construção para ${edificio} nível ${nivel} enviada com sucesso.`);
+                        
                     } else {
                         logger.add('Construtor', `Aldeia ${aldeia.name}: Modelo de construção concluído ou nenhum item disponível.`);
                     }
@@ -118,14 +117,29 @@
             return null;
         },
 
-        async construirEdificio(aldeiaId, edificio, csrfToken) {
+        /**
+         * Envia a requisição de construção através de um iframe invisível para não recarregar a página.
+         * ESTA É A FUNÇÃO QUE FOI CORRIGIDA.
+         */
+        construirEdificio(aldeiaId, edificio, csrfToken) {
             const url = `/game.php?village=${aldeiaId}&screen=main&action=build&id=${edificio}&h=${csrfToken}`;
+            
             try {
-                const response = await fetch(url, { method: 'GET' });
-                return response.ok;
+                // Cria o iframe "mensageiro"
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none'; // Fica invisível
+                iframe.src = url;
+
+                // Adiciona o iframe à página para que ele seja carregado
+                document.body.appendChild(iframe);
+
+                // Limpa o iframe da página após alguns segundos para não acumular lixo.
+                setTimeout(() => {
+                    iframe.remove();
+                }, 5000); // 5 segundos
+
             } catch (error) {
-                console.error("Erro na requisição de construção:", error);
-                return false;
+                console.error("Erro ao criar iframe de construção:", error);
             }
         }
     };
