@@ -1,4 +1,4 @@
-console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.3-ScopeFix');
+console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.3-Final');
 'use strict';
 
 /**
@@ -6,7 +6,7 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.3-Scop
  * KITSUNE - MÓDULO DE LÓGICA - CONSTRUTOR (m_construtor.js)
  * =========================================================================================
  * Motor lógico para o módulo Construtor, adaptado para ler dados diretamente da página.
- * @version 4.3-ScopeFix
+ * @version 4.3-Final
  * @author Triky, Gemini & Cia
  */
 const construtorModule = {
@@ -19,53 +19,58 @@ const construtorModule = {
 
     async getVillageState(villageId, logger) {
         const url = `/game.php?village=${villageId}&screen=main`;
-        const response = await fetch(url);
-        if (!response.ok) {
-            logger.add('Construtor', `[${villageId}] Falha ao carregar a página da aldeia. Status: ${response.status}`);
-            return null;
-        }
-
-        const htmlText = await response.text();
-        const doc = new DOMParser().parseFromString(htmlText, 'text/html');
-        
-        const scriptTag = Array.from(doc.querySelectorAll('script')).find(s => s.textContent.includes('BuildingMain.buildings'));
-        if (!scriptTag) {
-            logger.add('Construtor', `[${villageId}] Não foi possível encontrar o script com os dados dos edifícios.`);
-            return null;
-        }
-
-        const scriptContent = scriptTag.textContent;
-        const buildingDataMatch = scriptContent.match(/BuildingMain\.buildings = (\{.*\});/);
-        const gameDataMatch = scriptContent.match(/TribalWars\.updateGameData\((\{.*\})\);/);
-
-        if (!buildingDataMatch || !gameDataMatch) {
-            logger.add('Construtor', `[${villageId}] Falha ao extrair JSON dos dados da página.`);
-            return null;
-        }
-        
-        const buildingData = JSON.parse(buildingDataMatch[1]);
-        const gameData = JSON.parse(gameDataMatch[1]);
-
-        const fila = [];
-        doc.querySelectorAll('#build_queue tr.buildorder_storage, #build_queue tr.sortable_row').forEach(row => {
-            const text = row.querySelector('td:first-child').textContent.trim();
-            const buildingMatch = text.match(/(.+?)\s*Nível\s*(\d+)/);
-            if (buildingMatch) {
-                const buildingNamePT = buildingMatch[1].trim();
-                const buildingId = Object.keys(buildingData).find(key => buildingData[key].name === buildingNamePT);
-                if (buildingId) {
-                    fila.push({ building: buildingId, level: parseInt(buildingMatch[2], 10) });
-                }
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                logger.add('Construtor', `[${villageId}] Falha ao carregar a página da aldeia. Status: ${response.status}`);
+                return null;
             }
-        });
 
-        return {
-            id: villageId,
-            buildingData: buildingData,
-            gameData: gameData,
-            fila: fila,
-            queueSize: fila.length
-        };
+            const htmlText = await response.text();
+            const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+            
+            const scriptTag = Array.from(doc.querySelectorAll('script')).find(s => s.textContent.includes('BuildingMain.buildings'));
+            if (!scriptTag) {
+                logger.add('Construtor', `[${villageId}] Não foi possível encontrar o script com os dados dos edifícios.`);
+                return null;
+            }
+
+            const scriptContent = scriptTag.textContent;
+            const buildingDataMatch = scriptContent.match(/BuildingMain\.buildings = (\{.*\});/);
+            const gameDataMatch = scriptContent.match(/TribalWars\.updateGameData\((\{.*\})\);/);
+
+            if (!buildingDataMatch || !gameDataMatch) {
+                logger.add('Construtor', `[${villageId}] Falha ao extrair JSON dos dados da página.`);
+                return null;
+            }
+            
+            const buildingData = JSON.parse(buildingDataMatch[1]);
+            const gameData = JSON.parse(gameDataMatch[1]);
+
+            const fila = [];
+            doc.querySelectorAll('#build_queue tr.buildorder_storage, #build_queue tr.sortable_row').forEach(row => {
+                const text = row.querySelector('td:first-child').textContent.trim();
+                const buildingMatch = text.match(/(.+?)\s*Nível\s*(\d+)/);
+                if (buildingMatch) {
+                    const buildingNamePT = buildingMatch[1].trim();
+                    const buildingId = Object.keys(buildingData).find(key => buildingData[key].name === buildingNamePT);
+                    if (buildingId) {
+                        fila.push({ building: buildingId, level: parseInt(buildingMatch[2], 10) });
+                    }
+                }
+            });
+
+            return {
+                id: villageId,
+                buildingData: buildingData,
+                gameData: gameData,
+                fila: fila,
+                queueSize: fila.length
+            };
+        } catch (error) {
+            logger.add('Construtor', `[${villageId}] Erro de rede em getVillageState: ${error.message}`);
+            return null;
+        }
     },
     
     decidirOQueConstruir(estadoAldeia, settings, builderTemplates, modeloPadraoConstrucao, logger) {
@@ -121,16 +126,15 @@ const construtorModule = {
         const templateId = construtorSettings.modelo;
         logger.add('Construtor', `[${villageId}] Nenhuma macro acionada. Verificando modelo: ${templateId || 'Padrão'}`);
         
-        if (templateId === 'default') {
+        if (!templateId || templateId === 'default') {
             for (const buildTarget of modeloPadraoConstrucao) {
                 const [,,, building, level] = buildTarget.split('_');
                 if (calcularNivelEfetivo(building) < parseInt(level, 10)) {
                     logger.add('Construtor', `[${villageId}] Próximo do modelo padrão: ${building} nvl ${level}.`);
                     if (buildingData[building]?.can_build) return building;
-                    else {
-                        logger.add('Construtor', `[${villageId}] Não pode construir ${building}. Motivo: ${buildingData[building]?.error || 'Recursos insuficientes'}. Pausando modelo.`);
-                        break; 
-                    }
+                    
+                    logger.add('Construtor', `[${villageId}] Não pode construir ${building}. Motivo: ${buildingData[building]?.error || 'Recursos/Requisitos'}. Pausando modelo.`);
+                    break; 
                 }
             }
         } else {
@@ -140,10 +144,9 @@ const construtorModule = {
                     if (calcularNivelEfetivo(etapa.building) < etapa.level) {
                         logger.add('Construtor', `[${villageId}] Próximo do modelo '${template.name}': ${etapa.building} nvl ${etapa.level}.`);
                         if (buildingData[etapa.building]?.can_build) return etapa.building;
-                        else {
-                            logger.add('Construtor', `[${villageId}] Não pode construir ${etapa.building}. Motivo: ${buildingData[etapa.building]?.error || 'Recursos insuficientes'}. Pausando modelo.`);
-                            break;
-                        }
+
+                        logger.add('Construtor', `[${villageId}] Não pode construir ${etapa.building}. Motivo: ${buildingData[etapa.building]?.error || 'Recursos/Requisitos'}. Pausando modelo.`);
+                        break;
                     }
                 }
             }
