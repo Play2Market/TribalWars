@@ -1,185 +1,192 @@
-console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.5-HybridLogic');
-'use strict';
+// =========================================================================================
+// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.0 ---
+// =========================================================================================
+(function() {
+    'use strict';
 
-/**
- * =========================================================================================
- * KITSUNE - MÓDULO DE LÓGICA - CONSTRUTOR (m_construtor.js)
- * =========================================================================================
- * Motor lógico para o módulo Construtor, combinando a lógica funcional do script simples
- * com a execução em segundo plano e modular do Kitsune.
- * @version 4.5-HybridLogic
- * @author Triky, Gemini & Cia
- */
-const construtorModule = {
-    isRunning: false,
+    // Se o módulo já foi carregado, não faz nada.
+    if (window.construtorModule) {
+        return;
+    }
 
-    delay(min, max) {
-        const tempo = Math.random() * (max - min) + min;
-        return new Promise(resolve => setTimeout(resolve, tempo));
-    },
+    console.log(" Módulo de Lógica do Construtor está sendo carregado...");
 
-    async getVillageState(villageId, logger) {
-        const url = `/game.php?village=${villageId}&screen=main`;
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                logger.add('Construtor', `[${villageId}] Falha ao carregar a página da aldeia. Status: ${response.status}`);
-                return null;
-            }
+    const construtorModule = {
+        // Objeto para guardar as dependências que o script principal vai nos passar.
+        dependencias: {},
 
-            const htmlText = await response.text();
-            const doc = new DOMParser().parseFromString(htmlText, 'text/html');
-            
-            const scriptTag = Array.from(doc.querySelectorAll('script')).find(s => s.textContent.includes('TribalWars.updateGameData'));
-            if (!scriptTag) {
-                logger.add('Construtor', `[${villageId}] Não foi possível encontrar o script com os dados do jogo.`);
-                return null;
-            }
+        /**
+         * A função principal que é chamada pelo script principal.
+         * @param {object} dependencias - Um objeto contendo os outros módulos (settingsManager, logger, etc).
+         */
+        async run(dependencias) {
+            this.dependencias = dependencias;
+            const { settingsManager, logger, villageManager, KitsuneBuilderModal, modeloPadraoConstrucao, gameData } = this.dependencias;
+            const settings = settingsManager.get();
+            const construtorSettings = settings.construtor;
 
-            const gameDataMatch = scriptContent.match(/TribalWars\.updateGameData\((\{.*\})\);/);
-            if (!gameDataMatch) {
-                logger.add('Construtor', `[${villageId}] Falha ao extrair gameData da página.`);
-                return null;
-            }
-            
-            const gameData = JSON.parse(gameDataMatch[1]);
+            logger.add('Construtor', 'Módulo iniciado.');
 
-            const fila = [];
-            doc.querySelectorAll('#build_queue tr.buildorder_storage, #build_queue tr.sortable_row').forEach(row => {
-                const text = row.querySelector('td:first-child').textContent.trim();
-                const buildingMatch = text.match(/(.+?)\s*Nível\s*(\d+)/);
-                if (buildingMatch) {
-                    const buildingNamePT = buildingMatch[1].trim();
-                    const buildingId = Object.keys(gameData.village.buildings).find(key => {
-                        // Precisamos de uma forma de mapear nome PT -> ID. Vamos criar um map temporário.
-                        const buildingNames = { main: 'Edifício principal', barracks: 'Quartel', stable: 'Estábulo', garage: 'Oficina', snob: 'Academia', smith: 'Ferreiro', place: 'Praça de reunião', statue: 'Estátua', market: 'Mercado', wood: 'Bosque', stone: 'Poço de argila', iron: 'Mina de ferro', farm: 'Fazenda', storage: 'Armazém', hide: 'Esconderijo', wall: 'Muralha' };
-                        return buildingNames[key] === buildingNamePT;
-                    });
+            // Pega o ID do modelo selecionado nas configurações.
+            const modeloId = construtorSettings.modelo;
+            let filaDeConstrucao;
 
-                    if (buildingId) {
-                        fila.push({ building: buildingId, level: parseInt(buildingMatch[2], 10) });
-                    }
-                }
-            });
-
-            // Extrai todos os links de construção que estão visíveis e disponíveis
-            const linksDeConstrucao = {};
-            doc.querySelectorAll('a.btn-build').forEach(link => {
-                // O ID do link é algo como "main_buildlink_farm_1"
-                const id = link.id;
-                if (id && id.startsWith('main_buildlink_')) {
-                    linksDeConstrucao[id] = link.href;
-                }
-            });
-
-            return {
-                id: villageId,
-                gameData: gameData,
-                fila: fila,
-                queueSize: fila.length,
-                links: linksDeConstrucao
-            };
-        } catch (error) {
-            logger.add('Construtor', `[${villageId}] Erro em getVillageState: ${error.message}`);
-            return null;
-        }
-    },
-    
-    decidirOQueConstruir(estadoAldeia, settings, builderTemplates, modeloPadraoConstrucao, logger) {
-        const { gameData, queueSize, fila, id: villageId, links } = estadoAldeia;
-        const construtorSettings = settings.construtor || {};
-        const maxQueueSize = parseInt(construtorSettings.filas, 10) || 1;
-        
-        logger.add('Construtor', `[${villageId}] Decidindo... Fila: ${queueSize}/${maxQueueSize}.`);
-
-        if (queueSize >= maxQueueSize) {
-            logger.add('Construtor', `[${villageId}] Fila de construção cheia. Nenhuma ação.`);
-            return null;
-        }
-
-        const calcularNivelEfetivo = (nomeEdificio) => {
-            const nivelBase = parseInt(gameData.village.buildings[nomeEdificio] || 0, 10);
-            const emFila = fila.filter(item => item.building === nomeEdificio).length;
-            return nivelBase + emFila;
-        };
-
-        // LÓGICA DE MODELO (Inspirada no script simples)
-        const templateId = construtorSettings.modelo;
-        let buildOrder = [];
-
-        if (!templateId || templateId === 'default') {
-            buildOrder = modeloPadraoConstrucao;
-        } else {
-            const template = builderTemplates.find(t => t.id == templateId);
-            if (template) {
-                // Converte o modelo do Kitsune para o formato do script simples (main_buildlink_...)
-                buildOrder = template.queue.map(etapa => `main_buildlink_${etapa.building}_${etapa.level}`);
+            // Verifica qual modelo usar: o padrão ou um personalizado.
+            if (modeloId === 'default' || !modeloId) {
+                filaDeConstrucao = modeloPadraoConstrucao;
+                logger.add('Construtor', 'Usando modelo de construção Padrão.');
             } else {
-                // Fallback para o padrão se o modelo não for encontrado
-                buildOrder = modeloPadraoConstrucao;
+                const templates = KitsuneBuilderModal.loadTemplates();
+                const templateSelecionado = templates.find(t => t.id == modeloId);
+                if (templateSelecionado) {
+                    // Mapeia o modelo personalizado para o formato que o construtor entende.
+                    filaDeConstrucao = templateSelecionado.queue.map(item => `main_buildlink_${item.building}_${item.level}`);
+                    logger.add('Construtor', `Usando modelo personalizado: ${templateSelecionado.name}.`);
+                } else {
+                    logger.add('Construtor', 'Modelo personalizado não encontrado. Usando Padrão.');
+                    filaDeConstrucao = modeloPadraoConstrucao;
+                }
             }
-        }
 
-        // Encontra o primeiro item da lista que pode ser construído
-        for (const buildTargetId of buildOrder) {
-            if (links[buildTargetId]) {
-                logger.add('Construtor', `[${villageId}] Encontrado alvo válido do modelo: ${buildTargetId}.`);
-                return links[buildTargetId]; // Retorna a URL completa para construir
+            // Pega a lista de todas as aldeias do jogador.
+            const todasAldeias = villageManager.getVillages();
+            if (!todasAldeias || todasAldeias.length === 0) {
+                logger.add('Construtor', 'Nenhuma aldeia encontrada para processar.');
+                return;
             }
-        }
-        
-        logger.add('Construtor', `[${villageId}] Nenhuma construção do modelo está disponível no momento.`);
-        return null;
-    },
 
-    async run(dependencias) {
-        if (this.isRunning) { return; }
-        this.isRunning = true;
+            // Itera sobre cada aldeia para verificar o que precisa ser construído.
+            for (const aldeia of todasAldeias) {
+                try {
+                    // Pega o estado atual da aldeia (níveis de edifícios, recursos, etc).
+                    const estadoAldeia = await this.obterEstadoDaAldeia(aldeia.id);
 
-        const { settingsManager, villageManager, logger, KitsuneBuilderModal, modeloPadraoConstrucao } = dependencias;
-        logger.add('Construtor', 'Iniciando ciclo de verificação (v4.5)...');
-        
-        const settings = settingsManager.get();
-        const builderTemplates = KitsuneBuilderModal.loadTemplates();
-        const aldeias = villageManager.getVillages();
+                    // Se a fila de construção estiver cheia, pula para a próxima aldeia.
+                    if (estadoAldeia.filaConstrucao.length >= estadoAldeia.maxFilas) {
+                        logger.add('Construtor', `Aldeia ${aldeia.name}: Fila de construção cheia.`);
+                        continue;
+                    }
 
-        if (!aldeias || aldeias.length === 0) {
-            logger.add('Construtor', 'Nenhuma aldeia encontrada.');
-            this.isRunning = false;
-            return;
-        }
-        
-        for (const aldeia of aldeias) {
-            try {
-                const estadoAldeia = await this.getVillageState(aldeia.id, logger);
-                if (!estadoAldeia) {
-                    await this.delay(200, 400);
+                    // Encontra o próximo item a ser construído na aldeia.
+                    const proximoItem = this.encontrarProximoItemParaConstruir(filaDeConstrucao, estadoAldeia.niveisEdificios);
+
+                    if (proximoItem) {
+                        const { edificio, nivel } = proximoItem;
+                        logger.add('Construtor', `Aldeia ${aldeia.name}: Tentando construir ${edificio} nível ${nivel}.`);
+
+                        // Tenta construir o edifício.
+                        const sucesso = await this.construirEdificio(aldeia.id, edificio, gameData.csrf);
+                        if (sucesso) {
+                            logger.add('Construtor', `Aldeia ${aldeia.name}: Ordem de construção para ${edificio} nível ${nivel} enviada com sucesso.`);
+                            // Após construir com sucesso, podemos parar de verificar esta aldeia por agora.
+                            break; 
+                        } else {
+                            logger.add('Construtor', `Aldeia ${aldeia.name}: Falha ao enviar ordem de construção para ${edificio} nível ${nivel}. Pode ser falta de recursos.`);
+                        }
+                    } else {
+                        logger.add('Construtor', `Aldeia ${aldeia.name}: Modelo de construção concluído ou nenhum item disponível.`);
+                    }
+
+                } catch (error) {
+                    console.error(`Erro ao processar a aldeia ${aldeia.name}:`, error);
+                    logger.add('Construtor', `Erro crítico ao processar aldeia ${aldeia.name}.`);
+                }
+            }
+            logger.add('Construtor', 'Ciclo finalizado.');
+        },
+
+        /**
+         * Busca os dados da página principal da aldeia para saber o que já está construído.
+         * @param {string} aldeiaId - O ID da aldeia.
+         * @returns {Promise<object>} - Um objeto com os níveis dos edifícios e a fila de construção.
+         */
+        async obterEstadoDaAldeia(aldeiaId) {
+            const url = `/game.php?village=${aldeiaId}&screen=main`;
+            const response = await fetch(url);
+            const text = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+
+            const niveisEdificios = {};
+            // Extrai os níveis de todos os edifícios da página.
+            doc.querySelectorAll('[data-building]').forEach(el => {
+                const edificio = el.dataset.building;
+                const nivelEl = el.querySelector('.level');
+                const nivel = nivelEl ? parseInt(nivelEl.innerText.trim(), 10) : 0;
+                if (!isNaN(nivel)) {
+                    niveisEdificios[edificio] = nivel;
+                }
+            });
+            // Adiciona o nível 0 para edifícios que ainda não existem
+            if (!niveisEdificios.snob) niveisEdificios.snob = 0;
+            if (!niveisEdificios.stable) niveisEdificios.stable = 0;
+            if (!niveisEdificios.garage) niveisEdificios.garage = 0;
+
+
+            // Extrai os itens que já estão na fila de construção.
+            const filaConstrucao = Array.from(doc.querySelectorAll('#build_queue tr.build_queue_item')).map(row => {
+                return row.querySelector('td:first-child').innerText.trim();
+            });
+            
+            // Verifica o máximo de filas de construção (2 normal, 5 com premium)
+            const maxFilas = doc.querySelector('#build_queue_max_size').textContent.includes('5') ? 5 : 2;
+
+            return { niveisEdificios, filaConstrucao, maxFilas };
+        },
+
+        /**
+         * Compara a fila do modelo com os edifícios atuais e encontra o próximo a construir.
+         * @param {Array<string>} filaDeConstrucao - A lista do modelo (ex: "main_buildlink_wood_1").
+         * @param {object} niveisAtuais - O objeto com os níveis atuais dos edifícios.
+         * @returns {object|null} - O próximo item a construir ou null se nada puder ser feito.
+         */
+        encontrarProximoItemParaConstruir(filaDeConstrucao, niveisAtuais) {
+            for (const item of filaDeConstrucao) {
+                const partes = item.split('_'); // Ex: "main", "buildlink", "wood", "1"
+                const edificio = partes[2];
+                const nivelAlvo = parseInt(partes[3], 10);
+                const nivelAtual = niveisAtuais[edificio] || 0;
+
+                // Se o nível atual já é igual ou maior que o alvo, pulamos para o próximo item do modelo.
+                if (nivelAtual >= nivelAlvo) {
                     continue;
                 }
 
-                // A lógica de macros pode ser adicionada aqui no futuro, antes da decisão do modelo
-                const urlParaConstruir = this.decidirOQueConstruir(estadoAldeia, settings, builderTemplates, modeloPadraoConstrucao, logger);
-
-                if (urlParaConstruir) {
-                    logger.add('Construtor', `[${aldeia.name}] Enviando comando de construção...`);
-                    const response = await fetch(urlParaConstruir);
-                    if (response.ok) {
-                        logger.add('Construtor', `[${aldeia.name}] COMANDO ENVIADO com sucesso.`);
-                    } else {
-                        logger.add('Construtor', `[${aldeia.name}] Falha na requisição de construção (Status: ${response.status}).`);
-                    }
-                    await this.delay(1000, 2000); // Pausa maior após uma ação bem-sucedida
+                // Se o nível atual é exatamente um a menos que o alvo, este é o próximo a construir.
+                if (nivelAtual === nivelAlvo - 1) {
+                    return { edificio, nivel: nivelAlvo };
                 }
-                
-            } catch (error) {
-                logger.add('Construtor', `Erro crítico ao processar ${aldeia.name}: ${error.message}`);
             }
-            await this.delay(200, 400); // Pausa curta entre aldeias
+            // Se o loop terminar, significa que não há mais o que construir.
+            return null;
+        },
+
+        /**
+         * Envia a requisição para o servidor para construir/evoluir um edifício.
+         * @param {string} aldeiaId - O ID da aldeia onde construir.
+         * @param {string} edificio - O nome do edifício (ex: "wood", "main").
+         * @param {string} csrfToken - O token de segurança do jogo.
+         * @returns {Promise<boolean>} - True se a requisição foi enviada, false caso contrário.
+         */
+        async construirEdificio(aldeiaId, edificio, csrfToken) {
+            // Este é o "coração" da ação. Ele simula o clique no botão de construir.
+            const url = `/game.php?village=${aldeiaId}&screen=main&action=build&id=${edificio}&h=${csrfToken}`;
+            try {
+                const response = await fetch(url, { method: 'GET' });
+                // A simples chamada à URL já é suficiente para o jogo processar a ação.
+                // Verificamos se a resposta não indica um erro.
+                if (response.ok) {
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error("Erro na requisição de construção:", error);
+                return false;
+            }
         }
+    };
 
-        logger.add('Construtor', 'Ciclo de verificação finalizado.');
-        this.isRunning = false;
-    }
-};
+    // Anexa o módulo à janela global para que o script principal possa encontrá-lo.
+    window.construtorModule = construtorModule;
 
-window.construtorModule = construtorModule;
+})();
