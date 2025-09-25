@@ -1,5 +1,5 @@
 // =========================================================================================
-// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.0 ---
+// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.1 ---
 // =========================================================================================
 (function() {
     'use strict';
@@ -97,6 +97,7 @@
 
         /**
          * Busca os dados da página principal da aldeia para saber o que já está construído.
+         * ESTA É A FUNÇÃO QUE FOI CORRIGIDA.
          * @param {string} aldeiaId - O ID da aldeia.
          * @returns {Promise<object>} - Um objeto com os níveis dos edifícios e a fila de construção.
          */
@@ -128,8 +129,17 @@
                 return row.querySelector('td:first-child').innerText.trim();
             });
             
-            // Verifica o máximo de filas de construção (2 normal, 5 com premium)
-            const maxFilas = doc.querySelector('#build_queue_max_size').textContent.includes('5') ? 5 : 2;
+            // --- INÍCIO DA CORREÇÃO ---
+            // Abordagem defensiva para obter o número máximo de filas.
+            let maxFilas = 2; // Começamos com um valor padrão seguro (contas não-premium).
+            const maxFilasElement = doc.querySelector('#build_queue_max_size');
+
+            // SÓ tentamos ler o conteúdo se o elemento FOI encontrado.
+            if (maxFilasElement) {
+                maxFilas = maxFilasElement.textContent.includes('5') ? 5 : 2;
+            }
+            // Se o elemento não for encontrado, a variável maxFilas continua com o valor padrão 2.
+            // --- FIM DA CORREÇÃO ---
 
             return { niveisEdificios, filaConstrucao, maxFilas };
         },
