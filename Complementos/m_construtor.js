@@ -161,22 +161,23 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
             return null;
         },
 
+        /**
+         * Função principal que orquestra o ciclo do módulo.
+         */
         async run(dependencias) {
-            if (this.isRunning) return;
-            this.isRunning = true;
-
-            const { settingsManager, villageManager, logger, KitsuneBuilderModal, modeloPadraoConstrucao } = dependencias;
-            logger.add('Construtor', 'Iniciando ciclo de verificação (v4.1)...');
+            // Teste definitivo para confirmar que a função está sendo chamada e executada internamente.
+            console.log('>>> DENTRO DE m_construtor.js: A função RUN foi executada! <<<');
             
-            const settings = settingsManager.get();
-            const builderTemplates = KitsuneBuilderModal.loadTemplates();
-            const aldeias = villageManager.getVillages();
-
-            if (!aldeias || aldeias.length === 0) {
-                logger.add('Construtor', 'Nenhuma aldeia encontrada para processar.');
-                this.isRunning = false;
-                return;
+            const { logger } = dependencias;
+            if(logger) {
+                logger.add('Construtor-TESTE', 'A função RUN está funcionando e o logger foi recebido.');
+            } else {
+                console.log('>>> DENTRO DE m_construtor.js: O logger não foi recebido.');
             }
+
+            // Apenas para manter a estrutura assíncrona, não faz nada.
+            return Promise.resolve();
+        }
             logger.add('Construtor', `Encontradas ${aldeias.length} aldeias para processar.`);
 
             for (const aldeia of aldeias) {
@@ -228,4 +229,5 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
     window.construtorModule = construtorModule;
 
 })();
+
 
