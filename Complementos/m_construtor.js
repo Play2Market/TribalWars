@@ -1,4 +1,4 @@
-console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debug-Logs');
+console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.2-Final-Fix');
 
 // Arquivo: m_construtor.js
 (function() {
@@ -9,7 +9,7 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
      * KITSUNE - MÓDULO DE LÓGICA - CONSTRUTOR (m_construtor.js)
      * =========================================================================================
      * Motor lógico para o módulo Construtor, adaptado para ler dados diretamente da página.
-     * @version 4.1-Debug-Logs
+     * @version 4.2-Final-Fix
      * @author Triky, Gemini & Cia
      */
     const construtorModule = {
@@ -49,13 +49,11 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
             const buildingData = JSON.parse(buildingDataMatch[1]);
             const gameData = JSON.parse(gameDataMatch[1]);
 
-            // [CORREÇÃO] Extrai os edifícios na fila de construção
             const fila = [];
             doc.querySelectorAll('#build_queue tr.buildorder_storage, #build_queue tr.sortable_row').forEach(row => {
                 const text = row.querySelector('td:first-child').textContent.trim();
                 const buildingMatch = text.match(/(.+?)\s*Nível\s*(\d+)/);
                 if (buildingMatch) {
-                    // Mapeia o nome em português para o ID do sistema (ex: "Edifício principal" -> "main")
                     const buildingNamePT = buildingMatch[1].trim();
                     const buildingId = Object.keys(buildingData).find(key => buildingData[key].name === buildingNamePT);
                     if (buildingId) {
@@ -68,8 +66,8 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
                 id: villageId,
                 buildingData: buildingData,
                 gameData: gameData,
-                fila: fila, // Usaremos a fila detalhada agora
-                queueSize: fila.length // Mantemos o tamanho total
+                fila: fila,
+                queueSize: fila.length
             };
         },
         
@@ -85,13 +83,10 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
                 return null;
             }
 
-            // [CORREÇÃO] Função de cálculo de nível agora considera a fila detalhada
             const calcularNivelEfetivo = (nomeEdificio) => {
                 const nivelBase = parseInt(gameData.village.buildings[nomeEdificio] || 0, 10);
                 const emFila = fila.filter(item => item.building === nomeEdificio).length;
-                const nivelEfetivo = nivelBase + emFila;
-                logger.add('Construtor', `[${villageId}] Nível efetivo de '${nomeEdificio}': ${nivelEfetivo} (Base: ${nivelBase}, Fila: ${emFila})`);
-                return nivelEfetivo;
+                return nivelBase + emFila;
             };
             
             // PRIORIDADE 1: FAZENDA
@@ -113,21 +108,21 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
 
             // PRIORIDADE 3: MURALHA
             const nivelMuralha = parseInt(construtorSettings.nivelMuralha) || 0;
-            logger.add('Construtor', `[${villageId}] Checando Muralha. Nível Efetivo: ${calcularNivelEfetivo('wall')}. Alvo: ${nivelMuralha}.`);
             if (calcularNivelEfetivo('wall') < nivelMuralha) {
+                logger.add('Construtor', `[${villageId}] Checando Muralha. Nível Efetivo: ${calcularNivelEfetivo('wall')}. Alvo: ${nivelMuralha}.`);
                 if (buildingData.wall.can_build) return 'wall';
             }
 
             // PRIORIDADE 4: ESCONDERIJO
             const nivelEsconderijo = parseInt(construtorSettings.nivelEsconderijo) || 0;
-            logger.add('Construtor', `[${villageId}] Checando Esconderijo. Nível Efetivo: ${calcularNivelEfetivo('hide')}. Alvo: ${nivelEsconderijo}.`);
             if (calcularNivelEfetivo('hide') < nivelEsconderijo) {
+                logger.add('Construtor', `[${villageId}] Checando Esconderijo. Nível Efetivo: ${calcularNivelEfetivo('hide')}. Alvo: ${nivelEsconderijo}.`);
                 if (buildingData.hide.can_build) return 'hide';
             }
             
             // PRIORIDADE 5: MODELO DE CONSTRUÇÃO
             const templateId = construtorSettings.modelo;
-            logger.add('Construtor', `[${villageId}] Nenhuma macro acionada. Verificando modelo: ${templateId || 'Nenhum'}`);
+            logger.add('Construtor', `[${villageId}] Nenhuma macro acionada. Verificando modelo: ${templateId || 'Padrão'}`);
             
             if (templateId === 'default') {
                 for (const buildTarget of modeloPadraoConstrucao) {
@@ -161,23 +156,24 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
             return null;
         },
 
-        /**
-         * Função principal que orquestra o ciclo do módulo.
-         */
         async run(dependencias) {
-            // Teste definitivo para confirmar que a função está sendo chamada e executada internamente.
-            console.log('>>> DENTRO DE m_construtor.js: A função RUN foi executada! <<<');
-            
-            const { logger } = dependencias;
-            if(logger) {
-                logger.add('Construtor-TESTE', 'A função RUN está funcionando e o logger foi recebido.');
-            } else {
-                console.log('>>> DENTRO DE m_construtor.js: O logger não foi recebido.');
+            if (this.isRunning) {
+                return;
             }
+            this.isRunning = true;
 
-            // Apenas para manter a estrutura assíncrona, não faz nada.
-            return Promise.resolve();
-        }
+            const { settingsManager, villageManager, logger, KitsuneBuilderModal, modeloPadraoConstrucao } = dependencias;
+            logger.add('Construtor', 'Iniciando ciclo de verificação (v4.2)...');
+            
+            const settings = settingsManager.get();
+            const builderTemplates = KitsuneBuilderModal.loadTemplates();
+            const aldeias = villageManager.getVillages();
+
+            if (!aldeias || aldeias.length === 0) {
+                logger.add('Construtor', 'Nenhuma aldeia encontrada para processar.');
+                this.isRunning = false;
+                return;
+            }
             logger.add('Construtor', `Encontradas ${aldeias.length} aldeias para processar.`);
 
             for (const aldeia of aldeias) {
@@ -229,5 +225,3 @@ console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debu
     window.construtorModule = construtorModule;
 
 })();
-
-
