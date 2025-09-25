@@ -1,3 +1,5 @@
+console.log('[m_construtor.js] Arquivo carregado e executando. Versão: 4.1-Debug-Logs');
+
 // Arquivo: m_construtor.js
 (function() {
     'use strict';
@@ -226,3 +228,4 @@
     window.construtorModule = construtorModule;
 
 })();
+
