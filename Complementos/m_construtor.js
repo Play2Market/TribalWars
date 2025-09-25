@@ -1,41 +1,60 @@
 // =========================================================================================
-// --- Módulo Construtor Automático para Aba "Construtor" v2.0 ---
+// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.7 ---
 // =========================================================================================
 (function() {
     'use strict';
 
-    if (window.construtorModuleAuto) return;
-    console.log("💡 Construtor Automático carregado...");
+    if (window.construtorModule) return;
 
-    const construtorModuleAuto = {
+    console.log("💡 Módulo de Lógica do Construtor carregado...");
+
+    const construtorModule = {
         dependencias: {},
 
+        /**
+         * Inicializa o módulo com dependências.
+         */
         init(dependencias) {
             this.dependencias = dependencias;
 
-            // Só roda se estivermos na aba Construtor
-            if (!window.location.href.includes('screen=main')) {
-                console.log("Construtor Automático: não estamos na aba principal. Abortando.");
+            const url = window.location.href;
+            // Permite rodar tanto na aba principal quanto na aba construtor
+            if (!url.includes('screen=main') && !url.includes('screen=builder')) {
+                console.log("Construtor: aba não compatível. Abortando inicialização.");
                 return;
             }
 
-            const settings = dependencias.settingsManager.get();
-            if (!settings.construtor.autoStart) {
-                console.log("Construtor Automático: autoStart desativado.");
+            const settings = dependencias.settingsManager?.get?.() || {};
+            if (!settings.construtor?.autoStart) {
+                console.log("Construtor: autoStart desativado.");
                 return;
             }
 
+            // Dispara o módulo
             this.run();
         },
 
+        /**
+         * Função principal: percorre aldeias e envia ordens de construção.
+         */
         async run() {
             const { settingsManager, logger, villageManager, KitsuneBuilderModal, modeloPadraoConstrucao, gameData } = this.dependencias;
-            const settings = settingsManager.get();
-            const construtorSettings = settings.construtor;
 
+            if (!settingsManager || !villageManager || !gameData) {
+                console.error("Construtor: dependências essenciais ausentes.");
+                return;
+            }
+
+            if (!gameData.csrf) {
+                logger?.add?.('Construtor', 'ERRO: gameData.csrf não definido. Abortando construção.');
+                return;
+            }
+
+            const settings = settingsManager.get();
+            const construtorSettings = settings.construtor || {};
             logger?.add?.('Construtor', 'Iniciando ciclo automático de construção...');
 
-            // --- Determina o modelo ---
+            // --- Define a fila ---
             let filaDeConstrucao;
             const modeloId = construtorSettings.modelo;
 
@@ -45,12 +64,12 @@
             } else {
                 const templates = KitsuneBuilderModal?.loadTemplates?.() || [];
                 const templateSelecionado = templates.find(t => t.id == modeloId);
-                filaDeConstrucao = templateSelecionado ? 
+                filaDeConstrucao = templateSelecionado ?
                     templateSelecionado.queue.map(i => `main_buildlink_${i.building}_${i.level}`) :
                     modeloPadraoConstrucao || [];
-                logger?.add?.('Construtor', templateSelecionado ? 
-                    `Usando modelo personalizado: ${templateSelecionado.name}` : 
-                    'Modelo personalizado não encontrado, usando padrão.');
+                logger?.add?.('Construtor', templateSelecionado ?
+                    `Usando modelo personalizado: ${templateSelecionado.name}` :
+                    'Modelo personalizado não encontrado. Usando padrão.');
             }
 
             // --- Percorre aldeias ---
@@ -125,9 +144,8 @@
         },
 
         construirEdificio(aldeiaId, edificio, csrf) {
-            const url = `/game.php?village=${aldeiaId}&screen=main&action=build&id=${edificio}&h=${csrf}`;
-
             try {
+                const url = `/game.php?village=${aldeiaId}&screen=main&action=build&id=${edificio}&h=${csrf}`;
                 const iframe = document.createElement('iframe');
                 iframe.style.display = 'none';
                 iframe.src = url;
@@ -139,21 +157,7 @@
         }
     };
 
-    window.construtorModuleAuto = construtorModuleAuto;
+    // --- Exporta módulo para o Kitsune ---
+    window.construtorModule = construtorModule;
 
-    // --- Inicializa se aba Construtor ---
-    window.addEventListener('load', () => {
-        window.construtorModuleAuto.init({
-            settingsManager: window.KitsuneSettingsManager,
-            logger: window.KitsuneLogger || { add: console.log },
-            villageManager: window.KitsuneVillageManager,
-            KitsuneBuilderModal: window.KitsuneBuilderModal,
-            modeloPadraoConstrucao: [
-                "main_buildlink_farm_1",
-                "main_buildlink_storage_1",
-                "main_buildlink_barracks_1"
-            ],
-            gameData: window.game_data
-        });
-    });
 })();
