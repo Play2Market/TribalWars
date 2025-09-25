@@ -156,24 +156,12 @@ const construtorModule = {
         return null;
     },
 
-    async run(dependencias) {
-        if (this.isRunning) {
-            return;
-        }
-        this.isRunning = true;
-
-        const { settingsManager, villageManager, logger, KitsuneBuilderModal, modeloPadraoConstrucao } = dependencias;
-        logger.add('Construtor', 'Iniciando ciclo de verificação (v4.3)...');
-        
-        const settings = settingsManager.get();
-        const builderTemplates = KitsuneBuilderModal.loadTemplates();
-        const aldeias = villageManager.getVillages();
-
-        if (!aldeias || aldeias.length === 0) {
-            logger.add('Construtor', 'Nenhuma aldeia encontrada para processar.');
-            this.isRunning = false;
-            return;
-        }
+    // No arquivo m_construtor.js, substitua a função 'run' inteira por esta:
+    run(dependencias) {
+        console.log('**************************************************');
+        console.log('*** TESTE MÍNIMO: A FUNÇÃO RUN FOI EXECUTADA! ***');
+        console.log('**************************************************');
+    }
         logger.add('Construtor', `Encontradas ${aldeias.length} aldeias para processar.`);
 
         for (const aldeia of aldeias) {
@@ -223,3 +211,4 @@ const construtorModule = {
 };
 
 window.construtorModule = construtorModule;
+
