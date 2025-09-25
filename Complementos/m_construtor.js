@@ -1,12 +1,10 @@
 // =========================================================================================
-// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.4 ---
+// --- INÍCIO: Módulo de Lógica do Construtor (m_construtor.js) v1.5 ---
 // =========================================================================================
 (function() {
     'use strict';
 
-    if (window.construtorModule) {
-        return;
-    }
+    if (window.construtorModule) { return; }
 
     console.log(" Módulo de Lógica do Construtor está sendo carregado...");
 
@@ -40,14 +38,8 @@
             }
 
             const todasAldeias = villageManager.getVillages();
-            
-            // --- LINHA DE TESTE ADICIONADA AQUI ---
-            console.log('DEBUG: Aldeias recebidas pelo Construtor:', todasAldeias);
-            
             if (!todasAldeias || todasAldeias.length === 0) {
                 logger.add('Construtor', 'Nenhuma aldeia encontrada para processar.');
-                // Adicionando um log no console também para ter certeza que estamos vendo.
-                console.warn('Kitsune Construtor: A lista de aldeias está vazia. O módulo não pode continuar.');
                 return;
             }
 
@@ -75,7 +67,6 @@
                     } else {
                         logger.add('Construtor', `Aldeia ${aldeia.name}: Modelo de construção concluído ou nenhum item disponível.`);
                     }
-
                 } catch (error) {
                     console.error(`Erro ao processar a aldeia ${aldeia.name}:`, error);
                     logger.add('Construtor', `Erro crítico ao processar aldeia ${aldeia.name}.`);
@@ -96,17 +87,13 @@
                 const edificio = el.dataset.building;
                 const nivelEl = el.querySelector('.level');
                 const nivel = nivelEl ? parseInt(nivelEl.innerText.trim(), 10) : 0;
-                if (!isNaN(nivel)) {
-                    niveisEdificios[edificio] = nivel;
-                }
+                if (!isNaN(nivel)) { niveisEdificios[edificio] = nivel; }
             });
             if (!niveisEdificios.snob) niveisEdificios.snob = 0;
             if (!niveisEdificios.stable) niveisEdificios.stable = 0;
             if (!niveisEdificios.garage) niveisEdificios.garage = 0;
 
-            const filaConstrucao = Array.from(doc.querySelectorAll('#build_queue tr.build_queue_item')).map(row => {
-                return row.querySelector('td:first-child').innerText.trim();
-            });
+            const filaConstrucao = Array.from(doc.querySelectorAll('#build_queue tr.build_queue_item')).map(row => row.querySelector('td:first-child').innerText.trim());
             
             let maxFilas = 2; 
             const maxFilasElement = doc.querySelector('#build_queue_max_size');
