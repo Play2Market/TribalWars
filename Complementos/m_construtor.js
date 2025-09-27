@@ -5,14 +5,10 @@
         return;
     }
 
-    console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v2.1) carregado.");
+    console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v2.2-debug) carregado.");
 
-    const STAGGER_DELAY_MS = 2000; // Atraso em milissegundos entre o processamento de cada aldeia
+    const STAGGER_DELAY_MS = 2000;
 
-    /**
-     * Ponto de entrada principal para o módulo construtor.
-     * @param {object} dependencias - Objeto contendo os módulos necessários.
-     */
     async function run(dependencias) {
         try {
             if (!dependencias || !dependencias.settingsManager || !dependencias.villageManager) {
@@ -24,7 +20,6 @@
             const settings = settingsManager.get();
 
             if (!settings?.construtor?.autoStart) {
-                // Esta verificação é redundante se o timer não for iniciado, mas é uma boa prática.
                 return;
             }
 
@@ -49,13 +44,6 @@
         }
     }
 
-    /**
-     * Cria um iframe para carregar a página do edifício principal de uma aldeia e depois o processa.
-     * @param {string} url - A URL do edifício principal da aldeia.
-     * @param {string} villageId - O ID da aldeia.
-     * @param {object} settings - O objeto de configurações globais.
-     * @param {number} delay - O tempo de espera antes de carregar o iframe.
-     */
     async function processarAldeia(url, villageId, settings, delay) {
         return new Promise(resolve => {
             setTimeout(() => {
@@ -86,12 +74,6 @@
         });
     }
 
-    /**
-     * Contém a lógica de construção para uma única aldeia (documento).
-     * @param {Document} doc - O documento do iframe da aldeia.
-     * @param {object} settings - O objeto de configurações globais.
-     * @param {string} villageId - O ID da aldeia que está sendo processada.
-     */
     function executarLogicaDeConstrucao(doc, settings, villageId) {
         if (!doc) return;
 
@@ -121,42 +103,52 @@
         }
     }
 
-    /**
-     * Encontra o próximo edifício construível com base no modelo ativo.
-     * @param {Document} doc - O documento do iframe da aldeia.
-     * @param {object} settings - O objeto de configurações globais.
-     * @returns {string|null} O ID do link de construção ou nulo.
-     */
     function obterProximoEdificioDoModelo(doc, settings) {
         try {
             const modeloAtivoId = settings?.construtor?.modelo;
             let filaDeConstrucao = [];
 
-            // --- LÓGICA CORRIGIDA AQUI ---
+            // --- LOGS DE DEPURAÇÃO ADICIONADOS ---
+            console.log(`[DEBUG] Procurando modelo com ID: '${modeloAtivoId}' (tipo: ${typeof modeloAtivoId})`);
+            
             if (modeloAtivoId === 'default') {
-                // Se for o modelo padrão, usa a constante global
+                console.log("[DEBUG] Usando modelo 'Padrão'.");
                 filaDeConstrucao = window.KitsuneConstants.MODELO_PADRAO_CONSTRUCAO;
             } else if (modeloAtivoId) {
-                // Se for um modelo customizado, carrega dos templates
+                console.log("[DEBUG] Procurando em modelos customizados...");
                 const todosModelos = window.KitsuneBuilderModal?.loadTemplates() || [];
-                const modelo = todosModelos.find(m => m.id == modeloAtivoId);
-                if (modelo?.queue) {
-                    filaDeConstrucao = modelo.queue.map(item => `main_buildlink_${item.building}_${item.level}`);
+                console.log("[DEBUG] Modelos encontrados no localStorage:", JSON.stringify(todosModelos));
+
+                // Usando parseInt para garantir que a comparação seja entre números
+                const modelo = todosModelos.find(m => m.id === parseInt(modeloAtivoId, 10));
+
+                if (modelo) {
+                    console.log("[DEBUG] Modelo customizado ENCONTRADO:", JSON.stringify(modelo));
+                    if (modelo.queue) {
+                        filaDeConstrucao = modelo.queue.map(item => `main_buildlink_${item.building}_${item.level}`);
+                    }
+                } else {
+                    console.log("[DEBUG] Modelo customizado NÃO ENCONTRADO.");
                 }
             }
+            // --- FIM DOS LOGS DE DEPURAÇÃO ---
 
             if (filaDeConstrucao.length === 0) {
+                console.log("[DEBUG] Fila de construção está vazia. Nenhum edifício a ser processado.");
                 return null;
             }
-            // --- FIM DA CORREÇÃO ---
+
+            console.log("[DEBUG] Verificando edifícios disponíveis na seguinte ordem:", filaDeConstrucao);
 
             for (const buildId of filaDeConstrucao) {
                 const el = doc.querySelector(`#${buildId}`);
                 if (el && el.offsetParent !== null) {
+                    console.log(`[DEBUG] Edifício '${buildId}' está disponível para construção.`);
                     return buildId;
                 }
             }
 
+            console.log("[DEBUG] Nenhum dos edifícios na fila de construção está disponível na página.");
             return null;
         } catch (error) {
             console.warn("Construtor: erro ao carregar ou processar modelo de construção.", error);
@@ -164,12 +156,6 @@
         }
     }
 
-    /**
-     * Verifica se o primeiro item da fila pode ser completado gratuitamente e clica se for o caso.
-     * @param {Document} doc - O documento do iframe da aldeia.
-     * @param {string} villageId - O ID da aldeia.
-     * @returns {boolean} - Retorna true se um edifício foi completado.
-     */
     function tentarCompletarGratis(doc, villageId) {
         const botaoCompletar = doc.querySelector('.btn-instant-free');
         if (botaoCompletar) {
@@ -192,7 +178,6 @@
         return ((h || 0) * 3600 + (m || 0) * 60 + (s || 0)) * 1000;
     }
 
-    // Expõe o módulo para o script principal
     window.construtorModule = {
         run: run
     };
