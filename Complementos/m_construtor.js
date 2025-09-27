@@ -1,23 +1,20 @@
 (function() {
     'use strict';
 
-    // Verificação para não injetar o script múltiplas vezes
     if (window.construtorModule) {
         return;
     }
 
-    console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v2.0) carregado.");
+    console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v2.1) carregado.");
 
     const STAGGER_DELAY_MS = 2000; // Atraso em milissegundos entre o processamento de cada aldeia
 
     /**
      * Ponto de entrada principal para o módulo construtor.
-     * É chamado pelo script principal (Core) em intervalos de tempo.
-     * @param {object} dependencias - Objeto contendo os módulos necessários (settingsManager, villageManager, etc.).
+     * @param {object} dependencias - Objeto contendo os módulos necessários.
      */
     async function run(dependencias) {
         try {
-            // Validação das dependências necessárias
             if (!dependencias || !dependencias.settingsManager || !dependencias.villageManager) {
                 console.error("Construtor: Dependências essenciais não foram carregadas. Abortando.");
                 return;
@@ -27,7 +24,7 @@
             const settings = settingsManager.get();
 
             if (!settings?.construtor?.autoStart) {
-                console.log("🔨 Construtor: AutoStart desativado nas configurações.");
+                // Esta verificação é redundante se o timer não for iniciado, mas é uma boa prática.
                 return;
             }
 
@@ -39,10 +36,8 @@
 
             console.log(`🔨 Construtor: Iniciando processamento de ${aldeias.length} aldeias.`);
 
-            // Processa cada aldeia sequencialmente com um atraso entre elas
             for (const [index, aldeia] of aldeias.entries()) {
                 const url = `${game_data.link_base_pure}main&village=${aldeia.id}`;
-                // O atraso real é o aleatório + um atraso fixo para não sobrecarregar o servidor
                 const delay = randomDelay(settings.construtorConfig) + (index * STAGGER_DELAY_MS);
                 await processarAldeia(url, aldeia.id, settings, delay);
             }
@@ -84,7 +79,7 @@
                 iframe.onerror = () => {
                     console.error(`🔥 Falha ao carregar o iframe para a aldeia ${villageId}.`);
                     iframe.remove();
-                    resolve(); // Resolve a promise mesmo em caso de erro para não travar o loop
+                    resolve();
                 };
 
             }, delay);
@@ -100,15 +95,8 @@
     function executarLogicaDeConstrucao(doc, settings, villageId) {
         if (!doc) return;
 
-        // 1. Tenta completar construções grátis
-        const completado = tentarCompletarGratis(doc, villageId);
-        if (completado) {
-            // Se algo foi completado, a página pode precisar ser recarregada para atualizar o estado.
-            // Por simplicidade, vamos apenas logar por enquanto.
-            console.log(`[Construtor] Edifício finalizado gratuitamente na aldeia ${villageId}. Reavaliando em breve.`);
-        }
+        tentarCompletarGratis(doc, villageId);
 
-        // 2. Verifica a fila de construção
         const filaAtual = doc.querySelectorAll('#buildqueue tr.buildorder_building').length;
         const limiteFila = parseInt(settings?.construtor?.filas || 2, 10);
 
@@ -117,7 +105,6 @@
             return;
         }
 
-        // 3. Busca o próximo edifício a ser construído com base no modelo
         const idDoProximoEdificio = obterProximoEdificioDoModelo(doc, settings);
 
         if (!idDoProximoEdificio) {
@@ -125,9 +112,8 @@
             return;
         }
 
-        // 4. Clica no botão para adicionar à fila
         const botaoConstruir = doc.querySelector(`#${idDoProximoEdificio}`);
-        if (botaoConstruir && botaoConstruir.offsetParent !== null) { // Verifica se está visível
+        if (botaoConstruir && botaoConstruir.offsetParent !== null) {
             console.log(`[Construtor] 🏗️ Adicionando '${idDoProximoEdificio}' à fila na aldeia ${villageId}.`);
             botaoConstruir.click();
         } else {
@@ -144,26 +130,34 @@
     function obterProximoEdificioDoModelo(doc, settings) {
         try {
             const modeloAtivoId = settings?.construtor?.modelo;
-            if (!modeloAtivoId) return null;
+            let filaDeConstrucao = [];
 
-            // Usa a função do módulo de modelos para carregar os templates
-            const todosModelos = window.KitsuneBuilderModal?.loadTemplates() || [];
-            const modelo = todosModelos.find(m => m.id == modeloAtivoId);
+            // --- LÓGICA CORRIGIDA AQUI ---
+            if (modeloAtivoId === 'default') {
+                // Se for o modelo padrão, usa a constante global
+                filaDeConstrucao = window.KitsuneConstants.MODELO_PADRAO_CONSTRUCAO;
+            } else if (modeloAtivoId) {
+                // Se for um modelo customizado, carrega dos templates
+                const todosModelos = window.KitsuneBuilderModal?.loadTemplates() || [];
+                const modelo = todosModelos.find(m => m.id == modeloAtivoId);
+                if (modelo?.queue) {
+                    filaDeConstrucao = modelo.queue.map(item => `main_buildlink_${item.building}_${item.level}`);
+                }
+            }
 
-            if (!modelo || !modelo.queue || modelo.queue.length === 0) return null;
+            if (filaDeConstrucao.length === 0) {
+                return null;
+            }
+            // --- FIM DA CORREÇÃO ---
 
-            // Converte a fila do modelo para o formato de ID do link
-            const filaDeConstrucao = modelo.queue.map(item => `main_buildlink_${item.building}_${item.level}`);
-            
-            // Encontra o primeiro item na fila que está disponível para ser construído
             for (const buildId of filaDeConstrucao) {
                 const el = doc.querySelector(`#${buildId}`);
-                if (el && el.offsetParent !== null) { // Checa se o elemento está visível e pode ser clicado
+                if (el && el.offsetParent !== null) {
                     return buildId;
                 }
             }
 
-            return null; // Nenhum edifício do modelo está disponível
+            return null;
         } catch (error) {
             console.warn("Construtor: erro ao carregar ou processar modelo de construção.", error);
             return null;
@@ -186,22 +180,12 @@
         return false;
     }
     
-    /**
-     * Gera um atraso aleatório com base nas configurações.
-     * @param {object} config - Objeto de configuração de tempo (tempoMin, tempoMax).
-     * @returns {number} - Atraso em milissegundos.
-     */
     function randomDelay(config) {
         const min = toMs(config?.tempoMin) || 1000;
         const max = toMs(config?.tempoMax) || 2000;
         return Math.floor(Math.random() * (max - min + 1) + min);
     }
     
-    /**
-     * Converte uma string de tempo 'HH:MM:SS' para milissegundos.
-     * @param {string} timeStr - A string de tempo.
-     * @returns {number|null} - O tempo em milissegundos.
-     */
     function toMs(timeStr) {
         if (!timeStr) return null;
         const [h, m, s] = timeStr.split(':').map(Number);
