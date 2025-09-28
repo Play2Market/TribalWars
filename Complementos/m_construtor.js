@@ -5,12 +5,12 @@
         return;
     }
 
-    console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v9.6-revisado) carregado.");
+    console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v10.0-fetch) carregado.");
 
-    const STORAGE_KEY_LAST_VILLAGE = 'kitsune_construtor_last_village_index';
+    const STAGGER_DELAY_MS = 1500; // Atraso entre o processamento de cada aldeia
 
     /**
-     * Ponto de entrada do módulo. Controla a navegação e a construção.
+     * Ponto de entrada do módulo. Agora opera totalmente em segundo plano.
      */
     async function run(dependencias) {
         try {
@@ -21,162 +21,126 @@
             }
 
             const settings = settingsManager.get();
-            if (!settings?.modules?.Construtor?.enabled) {
-                localStorage.setItem(STORAGE_KEY_LAST_VILLAGE, '-1');
-                return;
-            }
+            if (!settings?.modules?.Construtor?.enabled) return;
 
             const aldeias = villageManager.get();
             if (!aldeias || aldeias.length === 0) return;
 
-            // Se já estamos na página do Edifício Principal, executa a lógica de construção.
-            if (game_data.screen === 'main') {
-                console.log(`[Construtor] Analisando a aldeia atual: ${game_data.village.name}`);
-                await executarLogicaDeConstrucao(document, settings);
+            console.log(`[Construtor FETCH] Iniciando processamento de ${aldeias.length} aldeias.`);
 
-                // Após a lógica rodar, navega para a próxima aldeia para continuar o ciclo.
-                // ALTERADO: Usando um atraso aleatório para parecer mais humano.
-                const delay = randomDelay(settings?.construtor?.delay);
-                console.log(`[Construtor] Aguardando ${delay}ms antes de navegar para a próxima aldeia.`);
-                setTimeout(() => {
-                    navegarParaProximaAldeia(aldeias, settings);
-                }, delay);
-
-            } else {
-                // Se não estivermos na página certa, a única tarefa é navegar.
-                navegarParaProximaAldeia(aldeias, settings);
+            for (const [index, aldeia] of aldeias.entries()) {
+                // Adiciona um atraso entre cada requisição para não sobrecarregar o servidor
+                await new Promise(resolve => setTimeout(resolve, index * STAGGER_DELAY_MS));
+                await processarAldeiaComFetch(aldeia.id, settings);
             }
 
+            console.log(`[Construtor FETCH] Ciclo de processamento concluído.`);
         } catch (error) {
-            console.error("🔥 Erro crítico no ciclo do Construtor:", error);
+            console.error("🔥 Erro crítico no ciclo do Construtor FETCH:", error);
         }
     }
 
     /**
-     * Navega para a próxima aldeia da lista.
+     * Busca os dados da aldeia, analisa o HTML e decide qual ação tomar.
      */
-    function navegarParaProximaAldeia(aldeias, settings) {
-        let lastIndex = parseInt(localStorage.getItem(STORAGE_KEY_LAST_VILLAGE) || '-1', 10);
-        let nextIndex = lastIndex + 1;
-
-        if (nextIndex >= aldeias.length) {
-            console.log("[Construtor] Fim do ciclo de aldeias. Reiniciando na próxima execução.");
-            localStorage.setItem(STORAGE_KEY_LAST_VILLAGE, '-1');
-            
-            // ALTERADO: Apenas redireciona para a visão geral se não já estiver lá.
-            if (game_data.screen !== 'overview') {
-                 window.location.href = `${window.location.origin}/game.php?screen=overview`;
+    async function processarAldeiaComFetch(villageId, settings) {
+        try {
+            console.log(`[Construtor FETCH] Buscando dados da aldeia ${villageId}...`);
+            const url = `${window.location.origin}/game.php?village=${villageId}&screen=main`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.error(`[Construtor FETCH] Falha ao buscar dados da aldeia ${villageId}. Status: ${response.status}`);
+                return;
             }
-            return;
+
+            const htmlText = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlText, "text/html");
+
+            // Extrai o objeto game_data do HTML buscado
+            const aldeiaGameData = extrairGameData(htmlText);
+            if (!aldeiaGameData) {
+                console.error(`[Construtor FETCH] Não foi possível extrair game_data da aldeia ${villageId}.`);
+                return;
+            }
+
+            // Executa a lógica de construção usando os dados e o DOM que obtivemos
+            await executarLogicaDeConstrucao(doc, settings, aldeiaGameData);
+
+        } catch (error) {
+            console.error(`[Construtor FETCH] Erro ao processar aldeia ${villageId}:`, error);
         }
-
-        const proximaAldeia = aldeias[nextIndex];
-        localStorage.setItem(STORAGE_KEY_LAST_VILLAGE, nextIndex.toString());
-
-        const urlDaProximaAldeia = `${window.location.origin}/game.php?village=${proximaAldeia.id}&screen=main`;
-
-        console.log(`[Construtor] Navegando para a próxima aldeia: ${proximaAldeia.name} (${proximaAldeia.id})`);
-        
-        // ALTERADO: Pequeno delay aleatório antes de navegar para não ser instantâneo.
-        setTimeout(() => {
-            window.location.href = urlDaProximaAldeia;
-        }, randomDelay(settings?.construtor?.delay) / 2); // Metade do delay normal para trocas de página
     }
 
     /**
      * Tenta preencher a fila de construção até o limite definido.
      */
-    async function executarLogicaDeConstrucao(doc, settings) {
+    async function executarLogicaDeConstrucao(doc, settings, aldeiaGameData) {
+        let filaAtual = doc.querySelectorAll('#buildqueue tr.buildorder_building').length;
         const limiteFila = parseInt(settings?.construtor?.filas || 2, 10);
-        const delayConfig = settings?.construtor?.delay;
-        
+
         // Loop para tentar preencher a fila
-        while (true) {
-            // Reavalia a fila a cada iteração do loop
-            let filaAtual = doc.querySelectorAll('#buildqueue tr.buildorder_building').length;
-            console.log(`[Construtor] Fila atual: ${filaAtual}. Limite: ${limiteFila}.`);
-
-            if (filaAtual >= limiteFila) {
-                console.log(`[Construtor] Fila preenchida.`);
-                break;
-            }
-
+        while (filaAtual < limiteFila) {
             let acaoRealizada = false;
-            
-            // 1. Tenta finalizar construções grátis (maior prioridade)
-            if (tentarCompletarGratis(doc)) {
+            let proximoEdificioId = null;
+
+            // Prioridade 1: Macros Inteligentes
+            proximoEdificioId = verificarMacrosInteligentes(doc, settings, aldeiaGameData);
+            if (proximoEdificioId) {
+                console.log(`[Construtor FETCH] MACRO acionado para '${proximoEdificioId}' na aldeia ${aldeiaGameData.village.id}.`);
                 acaoRealizada = true;
-            } 
-            // 2. Se não, verifica macros inteligentes
-            else if (verificarMacrosInteligentes(doc, settings)) {
-                acaoRealizada = true;
-            } 
-            // 3. Se não, segue o modelo de construção
-            else {
-                const idDoProximoEdificio = obterProximoEdificioDoModelo(doc, settings);
-                if (idDoProximoEdificio) {
-                    const botaoParaClicar = doc.querySelector(`#${idDoProximoEdificio}`);
-                    if (botaoParaClicar) {
-                        console.log(`[Construtor] 🏗️ Seguindo modelo: Construindo '${idDoProximoEdificio}'.`);
-                        botaoParaClicar.click();
-                        acaoRealizada = true;
-                    }
+            } else {
+                // Prioridade 2: Seguir o modelo de construção
+                proximoEdificioId = obterProximoEdificioDoModelo(doc, settings);
+                if (proximoEdificioId) {
+                    console.log(`[Construtor FETCH] Modelo indica construir '${proximoEdificioId}' na aldeia ${aldeiaGameData.village.id}.`);
+                    acaoRealizada = true;
                 }
             }
-            
+
             if (acaoRealizada) {
-                // Espera um tempo aleatório para o jogo processar o clique e a interface atualizar
-                const delay = randomDelay(delayConfig);
-                console.log(`[Construtor] Ação realizada. Aguardando ${delay}ms para reavaliar a fila...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+                const botao = doc.querySelector(`#${proximoEdificioId}`);
+                if (botao && botao.href) {
+                    // Simula o clique enviando uma requisição para a URL do botão
+                    await fetch(botao.href);
+                    console.log(`[Construtor FETCH] 🏗️ Ação de construção para '${proximoEdificioId}' enviada.`);
+                    // Espera para simular o tempo de recarregamento da página
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // Como não podemos reavaliar o DOM facilmente, construímos um de cada vez por ciclo.
+                    // Isso é mais seguro e evita problemas de sincronia.
+                    break; 
+                }
             } else {
-                console.log(`[Construtor] Nenhuma ação de construção pôde ser realizada.`);
-                break; // Sai do loop se não houver mais nada a fazer
+                console.log(`[Construtor FETCH] Nenhuma ação de construção disponível para a aldeia ${aldeiaGameData.village.id}.`);
+                break;
             }
         }
     }
+    
+    function verificarMacrosInteligentes(doc, settings, aldeiaGameData) {
+        const { construtor: construtorSettings } = settings;
+        if (!construtorSettings) return null;
 
-    /**
-     * Verifica e executa as macros. Retorna true se uma ação foi tomada.
-     */
-    function verificarMacrosInteligentes(doc, settings) {
-        const construtorSettings = settings?.construtor;
-        if (!construtorSettings) return false;
+        const { wood, stone, iron, storage_max, pop, pop_max, buildings } = aldeiaGameData.village;
 
-        const { wood, stone, iron, storage_max, pop, pop_max, buildings } = game_data.village;
-        
-        // Macro do Armazém
         const armazemThreshold = parseInt(construtorSettings.armazem || '101', 10) / 100;
         if (wood / storage_max >= armazemThreshold || stone / storage_max >= armazemThreshold || iron / storage_max >= armazemThreshold) {
             const nextLevel = parseInt(buildings.storage) + 1;
             const buildId = `main_buildlink_storage_${nextLevel}`;
-            const botao = doc.querySelector(`#${buildId}.btn-build`);
-            if (botao) {
-                console.log(`[Construtor] MACRO: Armazém cheio! Construindo Nível ${nextLevel}.`);
-                botao.click();
-                return true;
-            }
+            if (doc.querySelector(`#${buildId}.btn-build`)) return buildId;
         }
-        
-        // Macro da Fazenda
+
         const fazendaThreshold = parseInt(construtorSettings.fazenda || '101', 10) / 100;
         if (pop / pop_max >= fazendaThreshold) {
             const nextLevel = parseInt(buildings.farm) + 1;
             const buildId = `main_buildlink_farm_${nextLevel}`;
-            const botao = doc.querySelector(`#${buildId}.btn-build`);
-            if (botao) {
-                console.log(`[Construtor] MACRO: Fazenda cheia! Construindo Nível ${nextLevel}.`);
-                botao.click();
-                return true;
-            }
+            if (doc.querySelector(`#${buildId}.btn-build`)) return buildId;
         }
         
-        return false;
+        return null;
     }
 
-    /**
-     * OTIMIZADO: Obtém a sequência de construção e encontra o primeiro item construível.
-     */
     function obterProximoEdificioDoModelo(doc, settings) {
         const modeloAtivoId = settings?.construtor?.modelo;
         let filaDeConstrucao = [];
@@ -193,54 +157,50 @@
 
         if (filaDeConstrucao.length === 0) return null;
 
-        // ALTERADO: Lógica mais direta. Itera pela fila e verifica se o botão existe e é clicável.
-        for (const buildId of filaDeConstrucao) {
-            // A classe .btn-build geralmente indica que o jogo permite o clique (recursos, etc.)
-            const botao = doc.querySelector(`#${buildId}.btn-build`);
-            if (botao) {
-                return buildId; // Encontrou o primeiro edifício construível do modelo.
+        const botoesClicaveis = doc.getElementsByClassName("btn btn-build");
+        const idsClicaveis = new Set();
+        for (const botao of botoesClicaveis) {
+            if (botao.id) {
+                idsClicaveis.add(botao.id);
             }
         }
-        
-        return null; // Nenhum edifício do modelo pode ser construído no momento.
-    }
-    
-    /**
-     * Verifica se há um botão para completar construção gratuitamente e clica nele.
-     */
-    function tentarCompletarGratis(doc) {
-        const botaoCompletar = doc.querySelector('.btn-instant-free');
-        if (botaoCompletar) {
-            console.log(`[Construtor] ⚡ Finalizando construção gratuitamente!`);
-            botaoCompletar.click();
-            return true;
+
+        for (const buildId of filaDeConstrucao) {
+            if (idsClicaveis.has(buildId)) {
+                return buildId;
+            }
         }
-        return false;
+        return null;
     }
     
     /**
-     * Gera um atraso aleatório dentro de um intervalo para simular comportamento humano.
+     * Extrai o objeto `game_data` do HTML bruto de uma página.
      */
+    function extrairGameData(htmlText) {
+        const match = htmlText.match(/TribalWars\.updateGameData\((.+?)\);/);
+        if (match && match[1]) {
+            try {
+                return JSON.parse(match[1]);
+            } catch (e) {
+                console.error("Erro ao parsear game_data extraído.", e);
+                return null;
+            }
+        }
+        return null;
+    }
+    
+    // Funções auxiliares
     function randomDelay(config) {
-        // Usa os tempos do objeto de configuração ou valores padrão seguros.
-        const min = toMs(config?.tempoMin) || 1200;
-        const max = toMs(config?.tempoMax) || 2500;
+        const min = toMs(config?.tempoMin) || 1000;
+        const max = toMs(config?.tempoMax) || 2000;
         return Math.floor(Math.random() * (max - min + 1) + min);
     }
     
-    /**
-     * Converte uma string de tempo 'HH:MM:SS' para milissegundos.
-     */
     function toMs(timeStr) {
-        if (!timeStr || typeof timeStr !== 'string') return null;
-        const parts = timeStr.split(':').map(Number);
-        if (parts.some(isNaN)) return null;
-        const [h, m, s] = parts;
+        if (!timeStr) return null;
+        const [h, m, s] = timeStr.split(':').map(Number);
         return ((h || 0) * 3600 + (m || 0) * 60 + (s || 0)) * 1000;
     }
-    
-    // REMOVIDO: O event listener 'load' era redundante e podia causar execuções duplicadas.
-    // A chamada do módulo deve ser gerenciada por um script principal que chama `construtorModule.run()`.
 
     // Expõe o módulo para o script principal
     window.construtorModule = {
