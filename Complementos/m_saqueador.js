@@ -1,118 +1,110 @@
-/**
- * =========================================================================================
- * KITSUNE - MÓDULO DE LÓGICA - SAQUEADOR (m_saqueador.js)
- * =========================================================================================
- * Motor lógico avançado para o módulo Saqueador.
- * @version 5.0-Polished
- * @author Triky, Gemini & Cia
- */
-const saqueadorModule = (function() {
+// ==UserScript==
+// @name         Kitsune | Módulo Saqueador
+// @namespace    https://github.com/Play2Market/TribalWars
+// @version      1.0
+// @description  Lógica de execução para o Módulo Saqueador do Projeto Kitsune.
+// @author       Seu Nome & Cia
+// @grant        none
+// ==/UserScript==
 
-    const PAUSE_CONFIG = {
-        BETWEEN_ATTACKS_MS: [250, 450]
-    };
+(function() {
+    'use strict';
 
-    const REPORT_KEY_MAP = {
-        'green': 'win', 'yellow': 'loss', 'red_yellow': 'win_damage',
-        'blue': 'scouted', 'red_blue': 'loss_scout', 'red': 'loss_full'
-    };
-
-    async function delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms + Math.random() * 50));
+    if (window.saqueadorModule) {
+        return;
     }
 
-    async function run(dependencias) {
-        const { settingsManager, villageManager, logger } = dependencias;
-        logger.add('Saqueador', 'Iniciando varredura multi-aldeia.');
+    const saqueadorModule = {
+        async run(dependencias) {
+            const { settingsManager, logger } = dependencias;
+            const settings = settingsManager.get().saqueador;
+            const modoFarm = (settings.modelo || 'A').toLowerCase();
 
-        const settings = settingsManager.get().saqueador;
-        const villagesToFarmFrom = villageManager.get();
-
-        if (!villagesToFarmFrom || villagesToFarmFrom.length === 0) {
-            logger.add('Saqueador', 'Nenhuma aldeia de origem encontrada para iniciar os saques.');
-            return;
-        }
-
-        const model = settings.modelo || 'A';
-        const maxDist = parseFloat(settings.distancia);
-        const maxWall = settings.nivelMuralha === null ? 20 : parseInt(settings.nivelMuralha, 10);
-        const reportSettings = settings.reports || {};
-        let totalAttacksSent = 0;
-
-        for (const originVillage of villagesToFarmFrom) {
-            logger.add('Saqueador', `Analisando alvos para a aldeia [${originVillage.name}].`);
-            let page = 0;
-            let hasNextPage = true;
-
-            while (hasNextPage) {
-                hasNextPage = false;
-                try {
-                    const response = await fetch(`/game.php?village=${originVillage.id}&screen=am_farm&Farm_page=${page}`);
-                    if (!response.ok) break;
-
-                    const text = await response.text();
-                    const doc = new DOMParser().parseFromString(text, 'text/html');
-
-                    const csrfMatch = text.match(/"csrf":"(\w+)"/);
-                    if (!csrfMatch || !csrfMatch[1]) {
-                        logger.add('Saqueador', `Token CSRF não encontrado para ${originVillage.name}.`);
-                        break;
-                    }
-                    const securityToken = csrfMatch[1];
-
-                    const farmRows = doc.querySelectorAll('#plunder_list tr[id^="village_"]');
-                    if (farmRows.length === 0) break;
-
-                    for (const row of farmRows) {
-                        if (row.querySelector('img[src*="/command/attack.webp"]')) continue;
-
-                        const reportIcon = row.querySelector('td:nth-of-type(2) img');
-                        if (reportIcon) {
-                            const reportType = reportIcon.src.split('/').pop().replace('.webp', '');
-                            const settingsKey = REPORT_KEY_MAP[reportType];
-                            if (settingsKey && reportSettings[settingsKey] === false) continue;
-                        }
-
-                        const wallLevelText = row.querySelector('td:nth-of-type(7)')?.textContent;
-                        if (wallLevelText && wallLevelText !== '?' && (parseInt(wallLevelText, 10) > maxWall)) continue;
-                        
-                        const distance = parseFloat(row.querySelector('td:nth-of-type(8)')?.textContent);
-                        if (!distance || distance > maxDist) continue;
-
-                        const attackButton = row.querySelector(`.farm_icon_${model.toLowerCase()}`);
-                        if (attackButton && !attackButton.classList.contains('farm_icon_disabled')) {
-                            const onclickAttr = attackButton.getAttribute('onclick');
-                            const params = onclickAttr.match(/(\d+), (\d+)/);
-                            if (!params) continue;
-
-                            const [_, targetVillageId, templateId] = params;
-                            const url = `/game.php?village=${originVillage.id}&screen=am_farm&mode=farm&ajaxaction=farm&json=1&h=${securityToken}`;
-                            const body = new URLSearchParams({ target: targetVillageId, template_id: templateId });
-
-                            await fetch(url, { method: 'POST', body });
-                            totalAttacksSent++;
-                            logger.add('Saqueador', `Ataque de [${originVillage.name}] para ${targetVillageId} enviado.`);
-                            await delay(PAUSE_CONFIG.BETWEEN_ATTACKS_MS[0] + Math.random() * PAUSE_CONFIG.BETWEEN_ATTACKS_MS[1]);
-                        }
-                    }
-
-                    if (doc.querySelector(`#plunder_list_nav a.paged-nav-item[href*="Farm_page=${page + 1}"]`)) {
-                        hasNextPage = true;
-                        page++;
-                    }
-                } catch (error) {
-                    logger.add('Saqueador', `Erro ao processar ${originVillage.name}: ${error.message}`);
-                    hasNextPage = false;
-                }
+            // O script original foi feito para as páginas do Assistente de Saque
+            if (!location.href.includes('screen=am_farm')) {
+                logger.add('Saqueador', 'Módulo pausado. Navegue até o Assistente de Saque para usá-lo.');
+                return;
             }
-        }
 
-        if (totalAttacksSent > 0) {
-            logger.add('Saqueador', `Varredura concluída. ${totalAttacksSent} ataques enviados.`);
-        } else {
-            logger.add('Saqueador', `Varredura concluída. Nenhum alvo válido encontrado.`);
-        }
-    }
+            // A lógica principal do AutoFarm (SIMPLES) começa aqui, adaptada:
+            logger.add('Saqueador', `Iniciando ciclo | Modo: ${modoFarm.toUpperCase()} | Muralha Máx: ${settings.nivelMuralha}`);
+            
+            let ataquesEnviados = 0;
+            const menu = $(`#am_widget_Farm a.farm_icon_${modoFarm}`).toArray();
 
-    return { run };
+            for (let i = 0; i < menu.length; i++) {
+                const tr = $(menu[i]).closest('tr');
+
+                // Filtro 1: Pular se já houver ataque em andamento
+                if (tr.find('img[src*="attack.png"]').length) {
+                    // logger.add('Saqueador', `Pulando #${i + 1} - Ataque em andamento.`);
+                    continue;
+                }
+
+                // Filtro 2: Pular se o nível da muralha for muito alto
+                const nivelMuralha = this.getNivelMuralha(tr);
+                if (nivelMuralha > settings.nivelMuralha) {
+                    logger.add('Saqueador', `Pulando #${i + 1} - Muralha Nv.${nivelMuralha} > ${settings.nivelMuralha}`);
+                    continue;
+                }
+
+                // Filtro 3: Pular se o botão estiver desabilitado (sem tropas suficientes para o modelo)
+                const botaoAtaque = tr.find(`a.farm_icon_${modoFarm}`);
+                if (botaoAtaque.hasClass('farm_icon_disabled')) {
+                    // logger.add('Saqueador', `Pulando #${i + 1} - Tropas insuficientes para o modelo.`);
+                    continue;
+                }
+                
+                // Pausa se não houver mais tropas em geral (este filtro é menos preciso, mas serve como segurança)
+                if (!this.temTropas()) {
+                    logger.add('Saqueador', 'Sem tropas na aldeia. Finalizando ciclo.');
+                    break;
+                }
+
+                const delay = this.rand(settings.cliqueMin, settings.cliqueMax);
+                logger.add('Saqueador', `Enviando ataque #${ataquesEnviados + 1} (aldeia ${i + 1}/${menu.length}) em ${delay}ms...`);
+                await this.sleep(delay);
+
+                // Dispara o clique no botão de farm
+                botaoAtaque.trigger('click');
+                ataquesEnviados++;
+            }
+
+            if (ataquesEnviados > 0) {
+                logger.add('Saqueador', `Ciclo finalizado. ${ataquesEnviados} ataque(s) enviado(s). Aguardando próximo ciclo do timer.`);
+            } else {
+                logger.add('Saqueador', 'Nenhum ataque enviado neste ciclo.');
+            }
+            // A mudança mais importante: NÃO HÁ location.reload(). O KitsuneTimerManager cuidará de chamar esta função novamente.
+        },
+
+        // --- Funções Auxiliares (adaptadas do script simples) ---
+        getNivelMuralha(tr) {
+            const tdMuralha = tr.find('td:nth-child(8)'); // A coluna da muralha é a 8ª
+            let nivel = parseInt(tdMuralha.text().trim(), 10);
+            return isNaN(nivel) ? 0 : nivel;
+        },
+
+        temTropas() {
+            let tem = false;
+            $('#units_home tr:not(:first-child) td.unit-item').each(function () {
+                if (parseInt($(this).text().trim(), 10) > 0) {
+                    tem = true;
+                    return false; // Interrompe o loop .each()
+                }
+            });
+            return tem;
+        },
+
+        rand(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        },
+
+        sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+    };
+
+    window.saqueadorModule = saqueadorModule;
+
 })();
