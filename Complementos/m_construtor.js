@@ -7,7 +7,7 @@
 
     console.log("🔨 Kitsune | Módulo de Lógica - Construtor (v10.0-fetch) carregado.");
 
-    const STAGGER_DELAY_MS = 1500; // Atraso entre o processamento de cada aldeia
+    const STAGGER_DELAY_MS = 450; // Atraso entre o processamento de cada aldeia
 
     /**
      * Ponto de entrada do módulo. Agora opera totalmente em segundo plano.
@@ -191,8 +191,8 @@
     
     // Funções auxiliares
     function randomDelay(config) {
-        const min = toMs(config?.tempoMin) || 1000;
-        const max = toMs(config?.tempoMax) || 2000;
+        const min = toMs(config?.tempoMin) || 350;
+        const max = toMs(config?.tempoMax) || 1500;
         return Math.floor(Math.random() * (max - min + 1) + min);
     }
     
